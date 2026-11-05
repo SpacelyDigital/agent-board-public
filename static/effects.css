@@ -1,0 +1,36 @@
+/* Decorative scenery remains behind the board and never receives input. */
+:root[data-effect]:not([data-effect="none"]) body { isolation: isolate; }
+.board-effects {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  user-select: none;
+}
+:root[data-effect]:not([data-effect="none"]) .page { position: relative; }
+:root[data-effect]:not([data-effect="none"]) .header,
+:root[data-effect]:not([data-effect="none"]) .usage,
+:root[data-effect]:not([data-effect="none"]) .summary,
+:root[data-effect]:not([data-effect="none"]) .section-heading,
+:root[data-effect]:not([data-effect="none"]) .footer,
+:root[data-effect]:not([data-effect="none"]) .history > summary,
+:root[data-effect]:not([data-effect="none"]) .empty-state {
+  background: var(--paper); background: color-mix(in srgb, var(--paper) 92%, transparent);
+  box-shadow: 0 0 20px 10px color-mix(in srgb, var(--paper) 85%, transparent);
+}
+:root[data-effect]:not([data-effect="none"]) .session,
+:root[data-effect]:not([data-effect="none"]) .session.history-session,
+:root[data-effect]:not([data-effect="none"]) .split-queue,
+:root[data-effect]:not([data-effect="none"]) .split-selection,
+:root[data-effect]:not([data-effect="none"]) .instrument-orbit {
+  background: var(--surface);
+}
+:root[data-effect]:not([data-effect="none"]) .appearance-options,
+:root[data-effect]:not([data-effect="none"]) .session-menu,
+:root[data-effect]:not([data-effect="none"]) .rename-dialog { background: var(--surface); }
+
+@media (prefers-reduced-motion: reduce) {
+  .board-effects { animation: none; }
+}

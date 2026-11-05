@@ -1,0 +1,240 @@
+{
+  "version": "0.2.5",
+  "build": "25",
+  "released": false,
+  "distribution": {
+    "channel": "store-preview",
+    "support_strategy": "us-external",
+    "price_owner_approved": "free",
+    "support_email_owner_approved": "Spacelydigital@gmail.com",
+    "uploaded": false,
+    "final_identifier_registered": false,
+    "final_signing_key_use_verified": false,
+    "minimum_macos_target": "13.0",
+    "architecture": "arm64",
+    "store_submission_ready": false,
+    "app_store_approved": false,
+    "upload_scope": "Apple distribution; backups and source publication are separate"
+  },
+  "sha256": {
+    "main_executable": "0741bf90dd144df51551b0250c891c3609bcf3c1e2f59cedcdef177519c9eaf5",
+    "packaged_collector": "794ff04ff74bb61f24c7b25d34075dc54135477e7444490ff749cd87aaa2cc1d",
+    "unsigned_preview_package": "2d3a4531e16986adf56730bdd5418e915998ebaefe9b26bebcc52e0b2beac75e",
+    "builder_checks": "15a72a976d8519f21c9df966147f383394b2428057b924223829c99ea0ca1a0c",
+    "source_freeze": "db80403effd4df9032c00cfc85402f638025ecc8fb8599d8126cab7d0179a0e0"
+  },
+  "unsigned_package_bytes": 10363593,
+  "frozen_source": {
+    "runtime_build_inputs": 85,
+    "allowlisted_source_files": 163,
+    "runtime_changes_from24": [
+      "collector_entry.py",
+      "install.py",
+      "build_store.py"
+    ],
+    "supporting_test_changes_from24": [
+      "tests/test_sandbox_policy.py",
+      "tests/test_store_packaging.py"
+    ],
+    "prior24_and_canonical21_preserved": true
+  },
+  "source_supporting_checks": {
+    "tests": 412,
+    "seconds": 14.434,
+    "focused_checks": 15,
+    "all_affected_module_tests": 40,
+    "original24_two_regression_controls_fail_as_expected": true,
+    "scope": "Real-source metadata dispatch, private staging and packaging fixtures; no new provider calls or installed25 proof."
+  },
+  "build25_corrections": {
+    "entry_accepts_only_reviewed_strategies": [
+      "hidden",
+      "us-external"
+    ],
+    "strict_sandbox_metadata_and_exact_policy_types": true,
+    "sandbox_account_and_reader_helpers_still_blocked": true,
+    "source_license_directories_deliberately_0700": true,
+    "staged_license_directories_0755_files_0644_before_signing": true,
+    "read_only_recipient_permissions_guard": true,
+    "unrelated_executable_modes_preserved": true,
+    "eight_other_product_python_modules_and_nativeRuntime_unchanged": true
+  },
+  "builder_package_evidence": {
+    "fresh_build_exit_code": 0,
+    "actual_BOM_app_entries": 97,
+    "all_BOM_actual_entries_uid0_gid0": true,
+    "license_directories": 2,
+    "license_files": 32,
+    "license_directories_mode": "0755",
+    "license_regular_files_mode": "0644",
+    "all_real_directories_other_read_and_traverse": true,
+    "all_regular_files_other_read": true,
+    "expected_regular_plus_symlink_logical_bytes": 22866404,
+    "independent_package_audit": "passed; exact25 independent structural/recipient-access proof, not installed GUI",
+    "native_parent_packaged_startup": "passed under derivative sandbox parent",
+    "actual_installed25": "Bounded existing-user phases: upgrade/startup/licenses/About/support, two real provider prompts and exact handoffs/review, app source reconnection, bounded About/Privacy keyboard and Quit/reopen. Not final Store or clean first-grant proof."
+  },
+  "actual24_failures": {
+    "collector_startup": "Signed us-external metadata rejected by hidden-only entry; exact archive code reproduced the native error before account/server dispatch.",
+    "license_access": "Ordinary recipient Finder reported permission denied; both root-owned license directories were0700 in the original and package BOM.",
+    "license_bytes_excluded_by_recipient_Finder": 423155,
+    "payload_omission_claimed": false,
+    "standalone_helper_abort_counts_as_native_startup_proof": false,
+    "prior_structural_audit_preserved_and_scope_qualified": true
+  },
+  "actual23_evidence": {
+    "native_install_and_launch_observed": true,
+    "native_200percent_reflow_in_exercised_window": true,
+    "appearance_controls_title_actions_options_reachable": true,
+    "light_columns_max_zoom_persisted_after_normal_quit_relaunch": true,
+    "original_presentation_restored": true,
+    "visual_normal_quit": true,
+    "new_provider_prompts": 0,
+    "guest_PID_or_network_inventory": false,
+    "VoiceOver_spoken_output": false
+  },
+  "earlier21_evidence": {
+    "real_codex_cooking_closed_window_completion_notification_click_and_restart": "Preserved historical exact21 observation, not25 proof.",
+    "exact_helper_native_harness_checks": 97,
+    "packaged_reader_fixture_cases": 18,
+    "historical_not_rerun25": true,
+    "completed_private_backup_preserved": true
+  },
+  "privacy": {
+    "automatic_board_account_usage_diagnostics_to_developer": false,
+    "analytics_advertising_crash_reporting_backend": false,
+    "local_selected_source_data_only": true,
+    "prototype_account_network_helpers_excluded_from_Store": true,
+    "local_quota_plugin_optional": true,
+    "StoreKit_current_storefront_when_About_active_and_before_support_click": true,
+    "storefront_persisted_logged_or_reported": false,
+    "optional_US_support_default": "hidden unless explicitly enabled in build",
+    "actual_US_nonUS_unknown_storefront_UI": "Normal About CTA/localQR and fixed-URL click observed; country independently unread and negative non-US/offline/revocation conditions unverified.",
+    "QR_bundled_locally": true,
+    "donations_unlock_features": false,
+    "voluntary_email_and_Kofi_contact_transaction_information_can_reach_developer": true,
+    "no_board_or_log_automatically_attached": true,
+    "bundled_policy_and_PRIVACY_md_disclose_StoreKit_and_voluntary_support": true,
+    "public_four_file_policy_alignment": "verified live; current StoreKit/voluntary support and hosting disclosures present"
+  },
+  "public_website": {
+    "website_only_public_repository": true,
+    "approved_site_files": 4,
+    "support_url": "https://spacelydigital.github.io/agent-board-support/",
+    "privacy_policy_url": "https://spacelydigital.github.io/agent-board-support/privacy.html",
+    "four_HTTP200_exact_bytes_verified": true,
+    "independent_source_readback_passed": true,
+    "browser_live_desktop_narrow_navigation_passed": true,
+    "app_source_not_in_website": true
+  },
+  "remaining_release_gates": [
+    "Final registered App ID/capability/profile approval and actual signing-key use/chain validation.",
+    "Actual macOS13 installation and launch; Intel support not claimed.",
+    "Clean first-grant/new-user setup, complete keyboard/spoken VoiceOver, reduced motion/effects/energy observations.",
+    "Negative unknown/non-US/offline storefront and final Store receipt/distribution behavior.",
+    "Repeat affected exact-release provider/recovery/notification/login/restart checks after final identity or artifact changes; existing bounded25 results remain scoped.",
+    "Final free listing price/availability, seller/copyright/contact, screenshots, privacy answers and provider/branding review; enter verified support/privacy URLs.",
+    "Authorized Apple upload/processing, App Review acceptance and release."
+  ],
+  "backup_status": {
+    "current25_clean_local_source_artifact_backup": "independently verified",
+    "current25_private_GitHub_backup": "independently verified; unpublished engineering checkpoint",
+    "all_prior_checkpoints_preserved": true,
+    "backup_snapshot": "closed phase1; later provider/recovery evidence remains separate",
+    "public_source_snapshot": "separate clean source with current nonruntime documentation; private ancestry excluded",
+    "regenerate_public_manifest_after_doc_overrides": true,
+    "recipient_account_guest_credentials_keys_raw_logs_screenshots_and_privateQA_excluded": true
+  },
+  "native_parent_startup25": {
+    "checks": 54,
+    "normal_stop": 19,
+    "sample_isolation": 35,
+    "exact_helper_tree_entries": 51,
+    "exact_helper_and_productionRuntime_preserved": true,
+    "authenticated_packaged_startup": true,
+    "source_account_isolation": true,
+    "owned_processes_and_runtime_access_files_cleaned": true,
+    "no_provider_Storefront_account_grant_or_production_GUI": true,
+    "limits": "Derivative native parent with real packaged helper; not actual installed main GUI, real providers, storefront, minimum13 or Store distribution."
+  },
+  "actual25_installed_validation": {
+    "scope": "PHASE1 ONLY: existing-source upgrade as ordinary test user; later phases below are separate.",
+    "native_installer_upgrade_succeeded": true,
+    "finder_version": "0.2.5",
+    "finder_logical_bytes": 22866404,
+    "first_launch_before_provider_open": true,
+    "native_attention": 4,
+    "existing_real_Claude_and_Codex_Ready_cards_observed": true,
+    "both_source_footers_connected": true,
+    "full_four_card_summary_in_one_capture": false,
+    "prior_profile_error_recurred": false,
+    "ordinary_license_and_nested_folder_access_and_Python_license_QuickLook": true,
+    "About_local_Privacy_and_back_navigation": true,
+    "natural_production_Kofi_CTA_and_localQR_visible": true,
+    "normal_click_fixed_Kofi_URL_no_query": true,
+    "storefront_country_independently_read": false,
+    "payment_made": false,
+    "QR_camera_scan": false,
+    "guest_Safari_normal_quit_after_handoff": true,
+    "normal_Quit_and_manual_reopen": true,
+    "persisted_presentation": {
+      "layout": "Ledger",
+      "theme": "Bureau green",
+      "mode": "Dark",
+      "sound": "off",
+      "both_sources_connected": true
+    },
+    "final_visual_Quit_and_orderly_guest_shutdown": true,
+    "new_provider_prompts": 0,
+    "new_source_grants": 0,
+    "provider_files_or_permissions_edited": false,
+    "guest_helper_PID_or_network_inventory": false,
+    "cached_quota_rendering_only": true,
+    "five_hour_window_unavailable": true,
+    "post_OS_restart_or_automatic_login_test": false,
+    "spoken_VoiceOver_minimum13_Store_receipt_or_Apple_processing_test": false,
+    "independent_visual_review": {
+      "bounded_review_passed": true,
+      "all19_pins_and_original_views": true,
+      "full_product_or_Store_readiness_pass": false
+    },
+    "limits": [
+      "Phase1 used no new provider prompt or source selection; later phases are recorded separately.",
+      "Not clean first-permission/new-user or final Store identity proof.",
+      "Independent country/negative-storefront/payment/QR-camera behavior not tested.",
+      "Guest PID/network, quota parity, spoken VoiceOver and actualmacOS13 remain unverified."
+    ]
+  },
+  "actual25_provider_phase2": {
+    "real_provider_prompts": 2,
+    "one_prompt_per_provider": true,
+    "Claude_Ready_exact_handoff_Review_Restore": true,
+    "Claude_Cooking_captured": false,
+    "Codex_one_Cooking_card_closed_window_completion_current_notification_exact_handoff": true,
+    "both_test_replies_Reviewed_after_normal_Quit_manual_reopen": true,
+    "manual_post_OS_restart_launch_observed": true,
+    "automatic_login_launch_tested": false,
+    "live_quota_parity_verified": false,
+    "five_hour_quota_available": false,
+    "normal_Quit_and_orderly_test_system_shutdown_visually_observed": true,
+    "independent_still_image_review_passed_with_scope_limits": true
+  },
+  "actual25_recovery_phase3": {
+    "new_provider_prompts": 0,
+    "in_app_Forget_removes_unavailable_sources_from_attention": true,
+    "same_three_previously_approved_source_roots_reselected": true,
+    "new_or_broader_roots": false,
+    "Reviewed_state_persists_after_reconnection_and_Quit_reopen": true,
+    "About_Privacy_back_Tab_Return_workflow": true,
+    "macOS_TCC_revocation_or_clean_first_grant_proof": false,
+    "complete_keyboard_or_VoiceOver_proof": false,
+    "guest_PID_network_cleanup_proof": false,
+    "final_normal_Quit_and_orderly_test_system_shutdown_visually_observed": true,
+    "independent_still_image_review_passed_with_scope_limits": true
+  },
+  "license_status": {
+    "project_open_source_license_selected": false,
+    "new_license_grant_added_by_public_snapshot": false,
+    "third_party_component_licenses_and_provider_notices_preserved": true
+  }
+}

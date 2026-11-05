@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Agent Board privacy</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <nav aria-label="Site"><strong>Agent Board</strong><a href="privacy.html" aria-current="page">Privacy</a><a href="support.html">Support</a></nav>
+  <main>
+    <h1>Privacy</h1>
+    <p>Agent Board keeps its board on your Mac. It does not send chats, account details, usage statistics or diagnostics to Spacely Digital or a reporting service. There is no Agent Board account, analytics SDK, advertising tracker or crash uploader.</p>
+    <h2>What stays on your Mac</h2>
+    <p>With your permission, Agent Board reads selected local coding-agent folders to find chats and their status. Its local database stores titles, project paths, chat identifiers, timestamps, short reply or permission previews, and your review and snooze choices. It does not copy complete transcripts or tool output into the board.</p>
+    <p>Read-only source-folder bookmarks, display settings and local logs stay on the same Mac. Agent Board does not synchronize them. It does not edit, delete or send messages in your original chats.</p>
+    <p>If a read-only open of the selected Codex index fails, Agent Board may make a bounded local copy of that index in a private temporary file on your Mac. The copy can contain index metadata beyond the fields shown on the board. This fallback does not copy session or transcript files, change original sources or folder permissions, or upload the copy.</p>
+    <p>Before copying any index data, Agent Board removes the empty temporary file’s folder entry. The copy remains in an unnamed local file that the operating system releases when the reader closes it or the reader process ends.</p>
+    <h2>Local usage figures</h2>
+    <p>Quota displays use figures already observed locally by the coding tool. Codex can include its weekly window in local session records. The optional Claude plugin exports only quota percentages, reset times and observation time to two local files. It does not export prompts, chats, account details, credentials or token counts.</p>
+    <p>These figures can be absent or stale. Their observation time does not confirm the active account or a fresh account request. Agent Board does not send prompts, open account sessions or read saved sign-in credentials to update them.</p>
+    <h2>Your controls</h2>
+    <p>Use <strong>Setup and Permissions</strong> to choose or forget source folders. Notifications are optional. Agent Board does not require Accessibility, Screen Recording, camera, microphone or Full Disk Access permissions.</p>
+    <p>To find stored board data, choose <strong>Agent Board → Open Local Data Folder</strong>. Quit the app before removing that folder. Source chats are separate. Display settings and macOS notification preferences are also separate local stores. To stop the optional Claude exporter, disable or uninstall its plugin in Claude and remove its two exported files if you want to clear old readings.</p>
+    <h2>Other services</h2>
+    <p>OpenAI and Anthropic operate their own apps and accounts under their own policies. Opening a chat switches to its provider app. Agent Board does not add a message or upload your board.</p>
+    <p>Apple may process App Store transactions and share platform metrics or diagnostics according to its services and your system settings. Agent Board has no reporting integration of its own.</p>
+    <p>Agent Board does not load this website during monitoring. Visiting a website in your browser uses that website's hosting service; chat data is not attached to Agent Board's links.</p>
+    <h2>Support email</h2>
+    <p>You can contact <a href="mailto:Spacelydigital@gmail.com">Spacelydigital@gmail.com</a> for support. The link opens your mail app without sending anything or attaching data. If you choose to send an email, Spacely Digital receives your email address, message and anything you choose to include. Your email provider handles that message under its own policies.</p>
+    <h2>Optional support</h2>
+    <p>Agent Board is free. An optional support link and bundled QR code can appear on its About page in eligible United States App Store storefronts. This is disabled by default and does not unlock features.</p>
+    <p>When this option is enabled, the app asks Apple's StoreKit service for the current storefront while About is active and again before opening the link. It does not save or log the storefront, add it to a profile, or send it to Spacely Digital. Unavailable or other storefront results keep support hidden. A local connection check makes no test request to an outside website and does not guarantee Internet access.</p>
+    <p>The QR image is bundled locally. Displaying it makes no request to Ko-fi or a QR service. Clicking or scanning opens a fixed Ko-fi page without board, account, chat or usage data. Ko-fi handles that visit and any optional payment under its own terms and privacy policy, and may share your contact and transaction details with Spacely Digital. Agent Board does not receive payment results or verify whether you donated.</p>
+    <h2>Changes</h2>
+    <p>If a future version changes how data is handled, this policy and the app's privacy information will be updated before that change is introduced.</p>
+  </main>
+  <footer>Updated November 5, 2026. Agent Board is independent of OpenAI and Anthropic.</footer>
+</body>
+</html>

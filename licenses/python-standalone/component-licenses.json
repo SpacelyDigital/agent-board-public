@@ -1,0 +1,782 @@
+{
+  "python_version": "3.12.16",
+  "target_triple": "aarch64-apple-darwin",
+  "apple_sdk_deployment_target": "11.0",
+  "licenses": [
+    "Python-2.0",
+    "CNRI-Python"
+  ],
+  "license_path": "licenses/LICENSE.cpython.txt",
+  "source_metadata_sha256": "dfc38df39b46bc1337abc4b3ff160e5ef4ca16f13dedb4c412a770ecb3fb8a36",
+  "extensions": {
+    "_abc": [
+      {
+        "links": []
+      }
+    ],
+    "_ast": [
+      {
+        "links": []
+      }
+    ],
+    "_asyncio": [
+      {
+        "links": []
+      }
+    ],
+    "_bisect": [
+      {
+        "links": []
+      }
+    ],
+    "_blake2": [
+      {
+        "links": []
+      }
+    ],
+    "_bz2": [
+      {
+        "licenses": [
+          "bzip2-1.0.6"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.bzip2.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "bz2",
+            "path_static": "build/lib/libbz2.a"
+          }
+        ]
+      }
+    ],
+    "_codecs": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_cn": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_hk": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_iso2022": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_jp": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_kr": [
+      {
+        "links": []
+      }
+    ],
+    "_codecs_tw": [
+      {
+        "links": []
+      }
+    ],
+    "_collections": [
+      {
+        "links": []
+      }
+    ],
+    "_contextvars": [
+      {
+        "links": []
+      }
+    ],
+    "_crypt": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_crypt.cpython-312-darwin.so"
+      }
+    ],
+    "_csv": [
+      {
+        "links": []
+      }
+    ],
+    "_ctypes": [
+      {
+        "licenses": [
+          "MIT"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.libffi.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "dl",
+            "system": true
+          },
+          {
+            "name": "ffi",
+            "path_static": "build/lib/libffi.a"
+          }
+        ]
+      }
+    ],
+    "_ctypes_test": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_ctypes_test.cpython-312-darwin.so"
+      }
+    ],
+    "_curses": [
+      {
+        "licenses": [
+          "X11"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.ncurses.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "ncurses",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "_curses_panel": [
+      {
+        "licenses": [
+          "X11"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.ncurses.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "ncurses",
+            "system": true
+          },
+          {
+            "name": "panel",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "_datetime": [
+      {
+        "links": []
+      }
+    ],
+    "_dbm": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_dbm.cpython-312-darwin.so"
+      }
+    ],
+    "_decimal": [
+      {
+        "licenses": [
+          "BSD-2-Clause"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.mpdecimal.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "mpdec",
+            "path_static": "build/lib/libmpdec.a"
+          }
+        ]
+      }
+    ],
+    "_elementtree": [
+      {
+        "links": []
+      }
+    ],
+    "_functools": [
+      {
+        "links": []
+      }
+    ],
+    "_hashlib": [
+      {
+        "licenses": [
+          "Apache-2.0"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.openssl-3.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "crypto",
+            "path_static": "build/lib/libcrypto.a"
+          }
+        ]
+      }
+    ],
+    "_heapq": [
+      {
+        "links": []
+      }
+    ],
+    "_imp": [
+      {
+        "links": []
+      }
+    ],
+    "_io": [
+      {
+        "links": []
+      }
+    ],
+    "_json": [
+      {
+        "links": []
+      }
+    ],
+    "_locale": [
+      {
+        "links": []
+      }
+    ],
+    "_lsprof": [
+      {
+        "links": []
+      }
+    ],
+    "_lzma": [
+      {
+        "licenses": [
+          "0BSD"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.liblzma.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "lzma",
+            "path_static": "build/lib/liblzma.a"
+          },
+          {
+            "name": "pthread",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "_md5": [
+      {
+        "links": []
+      }
+    ],
+    "_multibytecodec": [
+      {
+        "links": []
+      }
+    ],
+    "_multiprocessing": [
+      {
+        "links": []
+      }
+    ],
+    "_opcode": [
+      {
+        "links": []
+      }
+    ],
+    "_operator": [
+      {
+        "links": []
+      }
+    ],
+    "_pickle": [
+      {
+        "links": []
+      }
+    ],
+    "_posixshmem": [
+      {
+        "links": []
+      }
+    ],
+    "_posixsubprocess": [
+      {
+        "links": []
+      }
+    ],
+    "_queue": [
+      {
+        "links": []
+      }
+    ],
+    "_random": [
+      {
+        "links": []
+      }
+    ],
+    "_scproxy": [
+      {
+        "links": [
+          {
+            "framework": true,
+            "name": "CoreFoundation"
+          },
+          {
+            "framework": true,
+            "name": "SystemConfiguration"
+          }
+        ]
+      }
+    ],
+    "_sha1": [
+      {
+        "links": []
+      }
+    ],
+    "_sha2": [
+      {
+        "links": []
+      }
+    ],
+    "_sha3": [
+      {
+        "links": []
+      }
+    ],
+    "_signal": [
+      {
+        "links": []
+      }
+    ],
+    "_socket": [
+      {
+        "links": []
+      }
+    ],
+    "_sqlite3": [
+      {
+        "licenses": [
+          "Zlib"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.sqlite.txt",
+          "licenses/LICENSE.zlib-ng.txt",
+          "licenses/LICENSE.zlib.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "sqlite3",
+            "path_static": "build/lib/libsqlite3.a"
+          },
+          {
+            "name": "z",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "_sre": [
+      {
+        "links": []
+      }
+    ],
+    "_ssl": [
+      {
+        "licenses": [
+          "Apache-2.0"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.openssl-3.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "crypto",
+            "path_static": "build/lib/libcrypto.a"
+          },
+          {
+            "name": "ssl",
+            "path_static": "build/lib/libssl.a"
+          }
+        ]
+      }
+    ],
+    "_stat": [
+      {
+        "links": []
+      }
+    ],
+    "_statistics": [
+      {
+        "links": []
+      }
+    ],
+    "_string": [
+      {
+        "links": []
+      }
+    ],
+    "_struct": [
+      {
+        "links": []
+      }
+    ],
+    "_symtable": [
+      {
+        "links": []
+      }
+    ],
+    "_testbuffer": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_testbuffer.cpython-312-darwin.so"
+      }
+    ],
+    "_testcapi": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_testcapi.cpython-312-darwin.so"
+      }
+    ],
+    "_testimportmultiple": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_testimportmultiple.cpython-312-darwin.so"
+      }
+    ],
+    "_testinternalcapi": [
+      {
+        "links": []
+      }
+    ],
+    "_testmultiphase": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_testmultiphase.cpython-312-darwin.so"
+      }
+    ],
+    "_testsinglephase": [
+      {
+        "links": [],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_testsinglephase.cpython-312-darwin.so"
+      }
+    ],
+    "_thread": [
+      {
+        "links": []
+      }
+    ],
+    "_tkinter": [
+      {
+        "licenses": [
+          "TCL",
+          "Zlib"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.tcl.txt",
+          "licenses/LICENSE.zlib-ng.txt",
+          "licenses/LICENSE.zlib.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "framework": true,
+            "name": "CoreFoundation"
+          },
+          {
+            "name": "pthread",
+            "system": true
+          },
+          {
+            "name": "tcl9.0",
+            "system": true
+          },
+          {
+            "name": "tcl9tk9.0",
+            "system": true
+          },
+          {
+            "name": "tclstub",
+            "path_static": "build/lib/libtclstub.a"
+          },
+          {
+            "name": "tkstub",
+            "path_static": "build/lib/libtkstub.a"
+          },
+          {
+            "name": "z",
+            "system": true
+          }
+        ],
+        "shared_lib": "install/lib/python3.12/lib-dynload/_tkinter.cpython-312-darwin.so"
+      }
+    ],
+    "_tokenize": [
+      {
+        "links": []
+      }
+    ],
+    "_tracemalloc": [
+      {
+        "links": []
+      }
+    ],
+    "_typing": [
+      {
+        "links": []
+      }
+    ],
+    "_uuid": [
+      {
+        "licenses": [
+          "BSD-3-Clause"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.libuuid.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "uuid",
+            "path_static": "build/lib/libuuid.a"
+          }
+        ]
+      }
+    ],
+    "_warnings": [
+      {
+        "links": []
+      }
+    ],
+    "_weakref": [
+      {
+        "links": []
+      }
+    ],
+    "_xxinterpchannels": [
+      {
+        "links": []
+      }
+    ],
+    "_xxsubinterpreters": [
+      {
+        "links": []
+      }
+    ],
+    "_xxtestfuzz": [
+      {
+        "links": []
+      }
+    ],
+    "_zoneinfo": [
+      {
+        "links": []
+      }
+    ],
+    "array": [
+      {
+        "links": []
+      }
+    ],
+    "atexit": [
+      {
+        "links": []
+      }
+    ],
+    "audioop": [
+      {
+        "links": []
+      }
+    ],
+    "binascii": [
+      {
+        "licenses": [
+          "Zlib"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.zlib-ng.txt",
+          "licenses/LICENSE.zlib.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "z",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "builtins": [
+      {
+        "links": []
+      }
+    ],
+    "cmath": [
+      {
+        "links": []
+      }
+    ],
+    "errno": [
+      {
+        "links": []
+      }
+    ],
+    "faulthandler": [
+      {
+        "links": []
+      }
+    ],
+    "fcntl": [
+      {
+        "links": []
+      }
+    ],
+    "gc": [
+      {
+        "links": []
+      }
+    ],
+    "grp": [
+      {
+        "links": []
+      }
+    ],
+    "itertools": [
+      {
+        "links": []
+      }
+    ],
+    "marshal": [
+      {
+        "links": []
+      }
+    ],
+    "math": [
+      {
+        "links": []
+      }
+    ],
+    "mmap": [
+      {
+        "links": []
+      }
+    ],
+    "posix": [
+      {
+        "links": []
+      }
+    ],
+    "pwd": [
+      {
+        "links": []
+      }
+    ],
+    "pyexpat": [
+      {
+        "licenses": [
+          "MIT"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.expat.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "expat",
+            "path_static": "build/lib/libexpat.a"
+          }
+        ]
+      }
+    ],
+    "readline": [
+      {
+        "licenses": [
+          "BSD-3-Clause"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.libedit.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "edit",
+            "system": true
+          }
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "links": []
+      }
+    ],
+    "select": [
+      {
+        "links": []
+      }
+    ],
+    "sys": [
+      {
+        "links": []
+      }
+    ],
+    "syslog": [
+      {
+        "links": []
+      }
+    ],
+    "termios": [
+      {
+        "links": []
+      }
+    ],
+    "time": [
+      {
+        "links": []
+      }
+    ],
+    "unicodedata": [
+      {
+        "links": []
+      }
+    ],
+    "xxsubtype": [
+      {
+        "links": []
+      }
+    ],
+    "zlib": [
+      {
+        "licenses": [
+          "Zlib"
+        ],
+        "license_paths": [
+          "licenses/LICENSE.zlib-ng.txt",
+          "licenses/LICENSE.zlib.txt"
+        ],
+        "license_public_domain": false,
+        "links": [
+          {
+            "name": "z",
+            "system": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "agent-board-local",
+  "owner": {"name": "Spacely Digital"},
+  "plugins": [
+    {
+      "name": "agent-board-local-usage",
+      "source": "./claude-local-usage",
+      "description": "Exports Claude subscription quota figures on this Mac.",
+      "version": "0.1.0"
+    }
+  ]
+}

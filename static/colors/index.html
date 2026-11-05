@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="terminal" data-layout="ledger">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050805">
+    <title>Agent Board themes</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/palettes.css">
+    <link rel="stylesheet" href="/effects.css">
+    <link rel="stylesheet" href="/colors/colors.css">
+    <script src="/effects.js" defer></script>
+    <script src="/themes.js" defer></script>
+    <script src="/colors/colors.js" defer></script>
+  </head>
+  <body>
+    <header class="gallery-header">
+      <div class="gallery-heading">
+        <div>
+          <h1>Themes</h1>
+          <p>Compare light and dark modes using example chats and usage in the Ledger layout. Chat actions are inactive.</p>
+        </div>
+        <a href="/">Back to board</a>
+      </div>
+      <form class="theme-picker" aria-label="Choose a theme preview">
+        <div class="gallery-control"><label for="gallery-theme">Theme</label><select id="gallery-theme"></select></div>
+        <div class="gallery-control"><label for="gallery-mode">Mode</label><select id="gallery-mode"><option value="dark">Dark</option><option value="light">Light</option></select></div>
+        <label id="gallery-motion-label" class="gallery-motion" hidden><input id="gallery-motion" type="checkbox" checked>Animate background</label>
+      </form>
+    </header>
+    <main id="color-preview" class="page preview-board" aria-label="Bureau green color preview"></main>
+    <p class="gallery-footnote">Choose a theme and mode in the board’s Appearance menu to keep them.</p>
+    <span id="color-announcement" class="sr-only" role="status" aria-live="polite"></span>
+  </body>
+</html>

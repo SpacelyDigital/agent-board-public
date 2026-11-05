@@ -1,0 +1,199 @@
+"""Usage parsing, refresh policy, credential scope and stdio protocol regressions."""
+import base64
+import json
+import math
+import os
+import shlex
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from usage_source import (UsageSource, UsageUnavailable, parse_codex_usage, parse_claude_usage,
+                          _claude_token, fetch_codex_usage, _fetch_claude_in_process)
+from privacy_network import ProviderRequestError
+
+
+def write_python_fixture(executable, code):
+    script = executable.with_suffix(".py")
+    script.write_text(code)
+    executable.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + " " + shlex.quote(str(script)) + ' "$@"\n')
+    executable.chmod(0o700)
+
+
+class UsageTests(unittest.TestCase):
+    now = 1_800_000_000
+
+    def codex(self, *, primary=None, secondary=None):
+        return {"rateLimits": {"limitId": "codex", "primary": primary, "secondary": secondary}}
+
+    def test_codex_weekly_can_be_primary_or_secondary(self):
+        weekly = {"usedPercent": 95, "windowDurationMins": 10080, "resetsAt": self.now + 86400}
+        short = {"usedPercent": 20, "windowDurationMins": 300, "resetsAt": self.now + 3600}
+        for response in (self.codex(primary=weekly), self.codex(primary=short, secondary=weekly)):
+            self.assertEqual(parse_codex_usage(response), [{"id": "weekly", "label": "Weekly", "remaining_percent": 5.0, "reset_at": self.now + 86400}])
+
+    def test_codex_explicit_bucket_wins_over_legacy_view(self):
+        response = self.codex(primary={"usedPercent": 1, "windowDurationMins": 10080, "resetsAt": self.now + 60})
+        response["rateLimitsByLimitId"] = {"codex": {"limitId": "codex", "primary": {"usedPercent": 99, "windowDurationMins": 10080, "resetsAt": self.now + 70}}, "other": {"accountId": "must-not-escape", "credits": {"balance": "secret"}}}
+        windows = parse_codex_usage(response)
+        self.assertEqual(windows[0]["remaining_percent"], 1)
+        self.assertNotIn("secret", json.dumps(windows))
+        self.assertNotIn("must-not-escape", json.dumps(windows))
+
+    def test_codex_wrong_bucket_or_missing_weekly_is_unavailable(self):
+        for response in ({"rateLimitsByLimitId": {"other": {"primary": {"windowDurationMins": 10080}}}}, self.codex(primary={"usedPercent": 0, "windowDurationMins": 300, "resetsAt": self.now})):
+            with self.assertRaises(UsageUnavailable):
+                parse_codex_usage(response)
+
+    def test_claude_real_zero_and_hundred_and_iso_resets(self):
+        windows = parse_claude_usage({"five_hour": {"utilization": 0, "resets_at": "2027-01-15T12:00:00Z"}, "seven_day": {"utilization": 100, "resets_at": self.now}})
+        self.assertEqual([row["remaining_percent"] for row in windows], [100, 0])
+        self.assertEqual([row["id"] for row in windows], ["five_hour", "weekly"])
+        self.assertIsInstance(windows[0]["reset_at"], float)
+
+    def test_missing_or_invalid_data_never_becomes_fake_remaining(self):
+        for percent in (None, True, "95", -1, 101, math.nan, math.inf):
+            with self.assertRaises(UsageUnavailable):
+                parse_claude_usage({"five_hour": {"utilization": percent, "resets_at": self.now}})
+        for reset in (None, "2027-01-15T12:00:00", "bad", 0):
+            with self.assertRaises(UsageUnavailable):
+                parse_claude_usage({"five_hour": {"utilization": 20, "resets_at": reset}})
+        self.assertEqual(len(parse_claude_usage({"five_hour": None, "seven_day": {"utilization": 7, "resets_at": self.now}})), 1)
+
+    def test_refresh_is_at_most_once_per_minute_per_provider(self):
+        calls = {"claude": 0, "codex": 0}
+        def fetch(provider):
+            def run():
+                calls[provider] += 1
+                return [{"id": "weekly", "label": "Weekly", "remaining_percent": 33, "reset_at": self.now + 1000}]
+            return run
+        source = UsageSource({provider: fetch(provider) for provider in calls})
+        initial = source.scan(self.now)
+        source.scan(self.now + 59)
+        self.assertEqual(calls, {"claude": 1, "codex": 1})
+        source.scan(self.now + 60)
+        self.assertEqual(calls, {"claude": 2, "codex": 2})
+        initial[0]["windows"][0]["remaining_percent"] = 999
+        self.assertEqual(source.scan(self.now + 61)[0]["windows"][0]["remaining_percent"], 33)
+
+    def test_failed_refresh_retains_last_success_explicitly_stale(self):
+        attempts = 0
+        def fetch():
+            nonlocal attempts
+            attempts += 1
+            if attempts > 1:
+                raise UsageUnavailable("Provider is unavailable.")
+            return [{"id": "weekly", "label": "Weekly", "remaining_percent": 7, "reset_at": self.now + 1000}]
+        source = UsageSource({"claude": fetch, "codex": lambda: []})
+        initial = source.scan(self.now)
+        self.assertFalse(initial[0]["stale"])
+        self.assertFalse(initial[1]["available"])
+        self.assertEqual(initial[1]["windows"], [])
+        failed = source.scan(self.now + 61)[0]
+        self.assertTrue(failed["available"])
+        self.assertTrue(failed["stale"])
+        self.assertEqual(failed["updated_at"], self.now)
+        self.assertEqual(failed["windows"][0]["remaining_percent"], 7)
+        self.assertEqual(failed["error"], "Provider is unavailable.")
+
+    def test_unexpected_exception_is_sanitized(self):
+        def fetch():
+            raise RuntimeError("Bearer secret-token-from-provider")
+        rows = UsageSource({"claude": fetch, "codex": fetch}).scan(self.now)
+        self.assertNotIn("secret-token", json.dumps(rows))
+        self.assertEqual(rows[0]["windows"], [])
+        self.assertFalse(rows[0]["available"])
+
+    def test_past_reset_does_not_invent_a_refill(self):
+        def fetch():
+            return [{"id": "weekly", "label": "Weekly", "remaining_percent": 0, "reset_at": self.now - 1}]
+        row = UsageSource({"claude": fetch, "codex": fetch}).scan(self.now)[0]
+        self.assertTrue(row["stale"])
+        self.assertEqual(row["windows"][0]["remaining_percent"], 0)
+
+    def test_redirects_are_rejected_before_forwarding_bearer(self):
+        with patch("usage_source._claude_token", return_value="fixture"), \
+                patch("usage_source.read_provider_json", side_effect=ProviderRequestError("redirect")):
+            with self.assertRaisesRegex(UsageUnavailable, "redirected"):
+                _fetch_claude_in_process(self.now)
+
+    def test_active_account_and_organization_are_both_required(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            cache = {
+                "acct:wrong-account|client:active-org:https://api.anthropic.com:user:profile": {"token": "wrong-account-token", "expiresAt": (self.now + 1000) * 1000},
+                "acct:active-account|client:wrong-org:https://api.anthropic.com:user:profile": {"token": "wrong-org-token", "expiresAt": (self.now + 2000) * 1000},
+                "acct:active-account|client:active-org:https://not-anthropic.example:user:profile": {"token": "wrong-host-token", "expiresAt": (self.now + 3000) * 1000},
+                "acct:active-account|client:active-org:https://api.anthropic.com:user:profile": {"token": "right-token", "expiresAt": (self.now + 100) * 1000},
+                "acct:active-account|client:active-org:https://api.anthropic.com:user:inference": {"token": "lower-priority-token", "expiresAt": (self.now + 3000) * 1000},
+            }
+            (folder / "config.json").write_text(json.dumps({"lastKnownAccountUuid": "active-account", "oauth:tokenCacheV2": base64.b64encode(b"encrypted-fixture").decode()}))
+            with patch("usage_source._keychain_password", return_value=b"fixture"), patch("usage_source._decrypt_chromium", side_effect=lambda raw, password: json.dumps(cache).encode()), patch("usage_source._active_claude_org", return_value="active-org"):
+                self.assertEqual(_claude_token(folder, self.now), "right-token")
+                with self.assertRaises(UsageUnavailable):
+                    _claude_token(folder, self.now + 4000)
+
+    def test_codex_cold_start_budget_is_independent_of_claude_http_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "slow-codex-fixture"
+            write_python_fixture(executable, f'''
+import sys,json,time
+for line in sys.stdin:
+ value=json.loads(line)
+ if value.get('id')==1:
+  time.sleep(0.08)
+  print(json.dumps({{'id':1,'result':{{}}}}),flush=True)
+ if value.get('id')==2:
+  print(json.dumps({{'id':2,'result':{{'rateLimits':{{'limitId':'codex','primary':{{'usedPercent':95,'windowDurationMins':10080,'resetsAt':{self.now + 1000}}}}}}}}}),flush=True)
+''')
+            executable.chmod(0o700)
+            with patch("usage_source._codex_binary", return_value=str(executable)), patch("usage_source.REQUEST_TIMEOUT", 0.001), patch("usage_source.CODEX_TIMEOUT", 1.0):
+                self.assertEqual(fetch_codex_usage()[0]["remaining_percent"], 5)
+
+    def test_stdio_only_initializes_and_reads_account(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            executable, record = folder / "codex-fixture", folder / "methods.jsonl"
+            write_python_fixture(executable, f'''
+import sys,json
+record={str(record)!r}
+for line in sys.stdin:
+ value=json.loads(line)
+ with open(record,'a') as output: output.write(json.dumps(value['method'])+'\\n')
+ if value.get('id')==1: print(json.dumps({{'id':1,'result':{{}}}}),flush=True)
+ if value.get('id')==2:
+  print(json.dumps({{'id':2,'result':{{'rateLimits':{{'limitId':'codex','primary':{{'usedPercent':95,'windowDurationMins':10080,'resetsAt':{self.now + 1000}}}}}}}}}),flush=True)
+''')
+            executable.chmod(0o700)
+            with patch("usage_source._codex_binary", return_value=str(executable)):
+                self.assertEqual(fetch_codex_usage()[0]["remaining_percent"], 5)
+            self.assertEqual([json.loads(line) for line in record.read_text().splitlines()], ["initialize", "initialized", "account/rateLimits/read"])
+
+    def test_account_child_does_not_inherit_telemetry_destinations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "environment-codex-fixture"
+            write_python_fixture(executable, f'''
+import sys,json,os
+assert os.environ.get('OTEL_SDK_DISABLED')=='true'
+assert 'OTEL_EXPORTER_OTLP_ENDPOINT' not in os.environ
+assert 'OTEL_RESOURCE_ATTRIBUTES' not in os.environ
+assert 'SENTRY_DSN' not in os.environ
+assert sys.argv[1:]==['app-server','--stdio','-c','analytics.enabled=false']
+for line in sys.stdin:
+ value=json.loads(line)
+ if value.get('id')==1: print(json.dumps({{'id':1,'result':{{}}}}),flush=True)
+ if value.get('id')==2:
+  print(json.dumps({{'id':2,'result':{{'rateLimits':{{'limitId':'codex','primary':{{'usedPercent':95,'windowDurationMins':10080,'resetsAt':{self.now + 1000}}}}}}}}}),flush=True)
+''')
+            with patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "https://developer.example/collect",
+                                         "OTEL_RESOURCE_ATTRIBUTES": "private.fixture=do-not-forward",
+                                         "SENTRY_DSN": "https://fixture@developer.example/1"}), \
+                    patch("usage_source._codex_binary", return_value=str(executable)):
+                self.assertEqual(fetch_codex_usage()[0]["remaining_percent"], 5)
+
+
+if __name__ == "__main__":
+    unittest.main()

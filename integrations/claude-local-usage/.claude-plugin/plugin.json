@@ -1,0 +1,15 @@
+{
+  "name": "agent-board-local-usage",
+  "displayName": "Agent Board Local Usage",
+  "version": "0.1.0",
+  "description": "Exports subscription quota figures to two local files for Agent Board.",
+  "author": {"name": "Spacely Digital"},
+  "userConfig": {
+    "claude_directory": {
+      "type": "string",
+      "title": "Claude configuration folder",
+      "description": "Leave blank for ~/.claude, or enter the absolute Claude folder selected in Agent Board.",
+      "default": ""
+    }
+  }
+}

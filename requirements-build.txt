@@ -1,0 +1,3 @@
+# Build machine only. The app bundles its own Python runtime.
+pyinstaller==6.16.0
+certifi==2026.1.4

@@ -1,0 +1,14 @@
+.local/
+__pycache__/
+*.pyc
+build/
+dist/
+Agent Board.app/
+qa/
+.DS_Store
+*.spec
+*.p12
+*.p8
+*.mobileprovision
+.env
+.env.*

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="terminal">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050805">
+    <title>About Agent Board</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/palettes.css">
+    <link rel="stylesheet" href="/about/about.css">
+    <script src="/themes.js" defer></script>
+    <script src="/about/about.js" defer></script>
+  </head>
+  <body>
+    <main class="about-page">
+      <header class="about-header">
+        <h1>About Agent Board</h1>
+        <a class="back-link" href="/">Back to board</a>
+      </header>
+      <p class="about-intro">Agent Board keeps your local Codex and Claude Code chats visible while you work. See what is cooking, what needs your input and what is ready to review without checking each window.</p>
+      <section class="about-section" aria-labelledby="how-heading">
+        <h2 id="how-heading">How it works</h2>
+        <p>The app reads activity from the source folders you choose. Open takes you to the original chat. Reviewed clears a reply from the board until there is new activity, without changing the conversation.</p>
+        <p>Usage meters show cached quota readings from local provider records. Claude usage requires an optional plugin that you install in Claude. Readings may be absent or old; a scheduled reset does not confirm a renewed allowance or the account currently signed in.</p>
+        <p>Monitoring continues when the window is closed. Quit Agent Board to stop monitoring.</p>
+      </section>
+      <section id="privacy" class="about-section" aria-labelledby="privacy-heading">
+        <h2 id="privacy-heading">Privacy</h2>
+        <p>Agent Board does not send your chats, account details, usage statistics or diagnostics to Spacely Digital. It has no analytics, crash uploader or developer-operated server. It does not read saved sign-ins, send prompts or make provider account requests.</p>
+        <p><a href="/about/privacy/">Privacy policy</a></p>
+      </section>
+      <section class="about-section" aria-labelledby="support-heading">
+        <h2 id="support-heading">Support</h2>
+        <p>For help with Agent Board, email <a href="mailto:Spacelydigital@gmail.com">Spacelydigital@gmail.com</a>. This opens your email app. Nothing is sent automatically, and you choose what to include.</p>
+      </section>
+      <footer class="about-footer">
+        <p>Made by Spacely Digital. Agent Board is independent and is not affiliated with OpenAI or Anthropic. Claude and Codex are trademarks of their respective owners.</p>
+      </footer>
+    </main>
+  </body>
+</html>

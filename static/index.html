@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="terminal" data-layout="ledger">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050805">
+    <title>Agent Board</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/palettes.css">
+    <link rel="stylesheet" href="/effects.css">
+    <script src="/effects.js" defer></script>
+    <script src="/themes.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <div class="heading">
+          <h1>Agent Board</h1>
+          <div id="connection" class="connection" role="status"><span class="connection-dot" aria-hidden="true"></span><span id="connection-text">Connecting</span></div>
+        </div>
+        <div class="board-tabs" role="tablist" aria-label="Conversations">
+          <button id="board-tab" class="board-tab" type="button" role="tab" aria-selected="true" aria-controls="board-panel" tabindex="0">Board</button>
+          <button id="background-tab" class="board-tab" type="button" role="tab" aria-selected="false" aria-controls="background-panel" tabindex="-1">Background <span id="background-count" class="tab-count" hidden></span></button>
+        </div>
+        <div class="toolbar">
+          <details id="appearance-menu" class="appearance-menu">
+            <summary class="quiet-button">Appearance</summary>
+            <div class="appearance-options">
+              <label for="layout-select">Layout</label>
+              <select id="layout-select">
+                <option value="ledger">Ledger</option>
+                <option value="split">Split desk</option>
+                <option value="columns">Columns</option>
+                <option value="focus">Focus</option>
+                <option value="instrument">Instrument</option>
+              </select>
+              <label for="theme-select">Theme</label>
+              <select id="theme-select"></select>
+              <label for="mode-select">Mode</label>
+              <select id="mode-select">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <label id="motion-option" class="appearance-motion" hidden><input id="motion-toggle" type="checkbox" checked>Animate background</label>
+              <a class="appearance-compare" href="/colors/">Preview themes</a>
+            </div>
+          </details>
+          <button id="sound-toggle" class="quiet-button" type="button" aria-pressed="false" title="Play a sound when an agent needs your attention">Sound off</button>
+          <button id="fullscreen-toggle" class="quiet-button" type="button">Full screen</button>
+        </div>
+      </header>
+
+      <main>
+        <section id="sample-controls" class="sample-controls" aria-label="Sample board controls" hidden>
+          <p>These sample chats and usage readings are separate from your real board. No provider accounts are accessed.</p>
+          <div class="sample-actions">
+            <button class="action-button" type="button" data-sample-action="cooking">Cooking</button>
+            <button class="action-button" type="button" data-sample-action="needs_you">Needs you</button>
+            <button class="action-button" type="button" data-sample-action="ready">Ready</button>
+            <button class="action-button" type="button" data-sample-action="reset">Reset samples</button>
+          </div>
+        </section>
+        <section id="usage" class="usage" aria-label="Account usage">
+          <section class="usage-provider" data-provider="claude" aria-labelledby="usage-claude-heading">
+            <h2 id="usage-claude-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-claude" aria-hidden="true"></span>Claude</h2>
+            <div class="usage-windows">
+              <div id="usage-claude-five_hour" class="usage-window" aria-label="Claude five-hour usage">
+                <div class="usage-top"><span class="usage-label">5 hour</span><span class="usage-value">Loading</span></div>
+                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+              </div>
+              <div id="usage-claude-weekly" class="usage-window" aria-label="Claude weekly usage">
+                <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
+                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+              </div>
+            </div>
+          </section>
+          <section class="usage-provider" data-provider="codex" aria-labelledby="usage-codex-heading">
+            <h2 id="usage-codex-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-codex" aria-hidden="true"></span>Codex</h2>
+            <div class="usage-windows">
+              <div id="usage-codex-weekly" class="usage-window" aria-label="Codex weekly usage">
+                <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
+                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <div id="monitor-message" class="notice" role="status" hidden></div>
+        <div id="action-message" class="notice error" role="alert" hidden></div>
+        <p id="conversation-updates" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+
+        <div id="board-panel" role="tabpanel" aria-labelledby="board-tab">
+        <div id="summary" class="summary" aria-label="Conversation counts">
+          <div class="summary-item needs-you"><span class="summary-count" id="count-needs_you">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Needs you</span></div>
+          <div class="summary-item ready"><span class="summary-count" id="count-ready">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Ready</span></div>
+          <div class="summary-item cooking"><span class="summary-count" id="count-cooking">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Cooking</span></div>
+          <div class="summary-item disconnected"><span class="summary-count" id="count-disconnected">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Disconnected</span></div>
+        </div>
+
+        <div id="loading" class="empty-state"><p>Connecting to your local monitor.</p></div>
+        <div id="empty" class="empty-state" hidden><div class="empty-mark" aria-hidden="true">✓</div><h2>Your board is clear.</h2><p>New activity in Codex or Claude will appear here.</p></div>
+
+        <div id="active-workspace" class="active-workspace">
+          <aside id="split-queue" class="split-queue" aria-label="Conversation selection" hidden>
+            <h2>Conversations</h2>
+            <div id="split-list" class="split-list"></div>
+          </aside>
+          <section id="layout-primary" class="layout-primary" aria-labelledby="primary-heading" hidden>
+            <h2 id="primary-heading">Selected conversation</h2>
+            <div id="primary-card"></div>
+          </section>
+          <div id="layout-sections" class="layout-sections">
+        <section id="attention-section" class="session-section" aria-labelledby="attention-heading" hidden>
+          <div class="section-heading"><h2 id="attention-heading">Needs your attention</h2><span id="attention-count" class="section-count"></span></div>
+          <div id="attention-list" class="session-list"></div>
+        </section>
+        <section id="cooking-section" class="session-section" aria-labelledby="cooking-heading" hidden>
+          <div class="section-heading"><h2 id="cooking-heading">Cooking</h2><span id="cooking-count" class="section-count"></span></div>
+          <div id="cooking-list" class="session-list"></div>
+        </section>
+          </div>
+        </div>
+
+        <details id="history" class="history" hidden>
+          <summary><span>Reviewed</span><span id="history-count" class="history-count">0</span><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m5.5 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></summary>
+          <div id="history-list" class="session-list history-list"></div>
+        </details>
+        </div>
+
+        <section id="background-panel" class="background-panel" role="tabpanel" aria-labelledby="background-tab" hidden>
+          <div id="background-empty" class="empty-state"><p>Loading background sessions.</p></div>
+          <div id="background-list" class="session-list"></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div id="sources" class="sources" aria-label="Source health"></div>
+        <div class="footer-links"><span id="last-sync" class="last-sync"></span><a href="/about/">About</a></div>
+      </footer>
+    </div>
+    <dialog id="rename-dialog" class="rename-dialog" aria-labelledby="rename-heading">
+      <form id="rename-form">
+        <h2 id="rename-heading">Rename conversation</h2>
+        <label class="sr-only" for="rename-input">Conversation title</label>
+        <input id="rename-input" name="title" type="text" maxlength="160" autocomplete="off">
+        <p id="rename-error" class="dialog-error" role="alert" hidden></p>
+        <div class="dialog-actions">
+          <button id="rename-cancel" class="action-button" type="button">Cancel</button>
+          <button id="rename-save" class="action-button review-button" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

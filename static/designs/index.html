@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050805">
+    <title>Agent Board designs</title>
+    <link rel="stylesheet" href="/designs/designs.css">
+    <script src="/designs/designs.js" defer></script>
+  </head>
+  <body>
+    <header class="gallery-header">
+      <div class="gallery-heading">
+        <div><h1>Agent Board designs</h1><p>These layouts use example conversations and usage. Chat actions are shown for comparison.</p></div>
+        <a href="/">Back to board <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="gallery-toolbar">
+        <nav class="design-picker" aria-label="Choose a design">
+          <button type="button" data-design="ledger" aria-current="true">1. Ledger</button>
+          <button type="button" data-design="split">2. Split desk</button>
+          <button type="button" data-design="columns">3. Columns</button>
+          <button type="button" data-design="focus">4. Focus</button>
+          <button type="button" data-design="instrument">5. Instrument</button>
+        </nav>
+        <div class="gallery-arrows"><button id="previous-design" type="button" aria-label="Previous design">←</button><button id="next-design" type="button" aria-label="Next design">→</button></div>
+      </div>
+    </header>
+    <main id="design-stage" class="design-stage" aria-label="Design preview"></main>
+    <span id="design-announcement" class="sr-only" role="status" aria-live="polite"></span>
+  </body>
+</html>

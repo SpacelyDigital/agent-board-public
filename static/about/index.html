@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="terminal">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#050805">
+    <title>About Agent Board</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/palettes.css">
+    <link rel="stylesheet" href="/about/about.css">
+    <script src="/themes.js" defer></script>
+    <script src="/about/about.js" defer></script>
+  </head>
+  <body>
+    <main class="about-page">
+      <header class="about-header">
+        <h1>About Agent Board</h1>
+        <a class="back-link" href="/">Back to board</a>
+      </header>
+
+      <p class="about-intro">Agent Board keeps your Codex and Claude Code chats visible while you work. See what is cooking, what needs your input and what is ready to review without checking each window.</p>
+
+      <section class="about-section" aria-labelledby="how-heading">
+        <h2 id="how-heading">How it works</h2>
+        <p>The app reads activity from your existing Mac apps and shows each chat’s current status. Open takes you to the original chat. Reviewed clears the reply from your dashboard until there is new activity, without changing the conversation.</p>
+        <p>Your dashboard runs on this Mac’s loopback address. A local collector keeps it up to date, including when the dashboard window is closed. Quit Agent Board to stop monitoring.</p>
+      </section>
+
+      <section class="about-section" aria-labelledby="privacy-heading">
+        <h2 id="privacy-heading">Privacy</h2>
+        <p>Agent Board does not send your chats, account details, usage statistics or diagnostics to Spacely Digital. It has no analytics, crash uploads or developer-operated server. Your board data stays on this Mac.</p>
+        <p data-direct-only>Optional account features make read-only requests to your existing providers for usage and Claude project activity. Agent Board does not submit prompts, start model work or upload your local chat transcripts.</p>
+        <p data-sandbox-only hidden>This build reads only the source folders you choose. It does not read saved sign-ins, submit prompts or upload your chat transcripts. Local usage readings, when available, come from information written by your provider apps.</p>
+        <details id="privacy" class="privacy-details">
+          <summary>Read privacy details</summary>
+          <div class="privacy-content">
+            <h3>What the app reads and stores</h3>
+            <p>Local chat metadata and bounded session records provide titles, project paths, chat identifiers, timestamps, status and short reply or permission previews. The local database stores these fields, your review and snooze state, and your chosen names and placement. It does not copy full chat transcripts or tool output.</p>
+            <p data-direct-only>The database and service logs are in <code>~/Library/Application Support/Agent Board/data</code>. Appearance, sound and notification preferences are stored locally in the display or Mac app settings.</p>
+            <p data-sandbox-only hidden>The database and logs stay in Agent Board’s macOS app container. Choose Agent Board → Open Local Data Folder to find them. Appearance, sound and notification preferences also stay on this Mac.</p>
+            <div data-direct-only>
+            <h3>Requests to Claude and Codex</h3>
+            <p>Claude usage and project reads contact <code>api.anthropic.com</code> using the active Claude desktop account’s existing sign-in. If you enable those features, the app reads the named Claude Safe Storage Keychain item to unlock that credential in memory. Allow Claude Account Access lets you request Keychain permission; background reads never open permission prompts. It does not save, log or send that credential to the developer, and authenticated requests do not follow redirects.</p>
+            <p>Codex usage is read through its local app-server account interface using its existing sign-in. Codex handles its provider connection. Agent Board does not create an account, refresh a sign-in, write to a chat or run a model turn.</p>
+            </div>
+            <div data-sandbox-only hidden>
+              <h3>Usage readings</h3>
+              <p>The usage meters show the most recent local reading, with its age and reset time. They cannot refresh a provider’s cached reading or confirm that an expired quota has reset. Connecting a local Claude usage export is optional.</p>
+            </div>
+            <h3>Permissions and connections</h3>
+            <p data-direct-only>The downloaded Mac app asks before it starts monitoring. Account usage, Claude cloud projects, notifications and launch at login are off until you choose them. Use Agent Board → Setup and Permissions to change those choices.</p>
+            <p data-sandbox-only hidden>The app asks you to choose source folders before monitoring those apps. Notifications and launch at login are optional. Use Agent Board → Setup and Permissions to change those choices or forget folder access.</p>
+            <p>Notifications are optional and controlled by macOS. Agent Board does not need camera, microphone, screen recording or Accessibility access. Its dashboard listens only on this Mac’s loopback address.</p>
+            <p data-direct-only>To remove stored board data, quit Agent Board and delete <code>~/Library/Application Support/Agent Board</code>. Display settings and macOS notification preferences are separate.</p>
+            <p data-sandbox-only hidden>To remove stored board data, open the local data folder, quit Agent Board and move that folder to Trash. Source chats are separate and remain unchanged. Display settings and macOS notification preferences are also separate.</p>
+            <p>Opening a chat switches to its provider app.</p>
+            <p data-store-excluded>Opening the support link below takes you to Ko-fi in your browser, where Ko-fi’s own policies apply. The QR code is bundled with the app and makes no network request.</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="support-section" aria-labelledby="support-heading" data-store-excluded>
+        <div class="support-copy">
+          <h2 id="support-heading">Support Agent Board</h2>
+          <p>If Agent Board helps you, you can buy me a coffee.</p>
+          <a class="coffee-link" href="https://ko-fi.com/spacelydigital" target="_blank" rel="noopener noreferrer">Buy me a coffee <span aria-hidden="true">↗</span></a>
+          <p class="tip-address">ko-fi.com/spacelydigital</p>
+        </div>
+        <a class="qr-link" href="https://ko-fi.com/spacelydigital" target="_blank" rel="noopener noreferrer" aria-label="Open Spacely Digital’s Ko-fi page">
+          <img src="/about/ko-fi.svg" width="148" height="148" alt="Scan to open ko-fi.com/spacelydigital">
+        </a>
+      </section>
+
+      <footer class="about-footer">
+        <p>Made by Spacely Digital. Agent Board is independent and is not affiliated with OpenAI or Anthropic. Claude and Codex logos belong to their respective owners.</p>
+      </footer>
+    </main>
+  </body>
+</html>

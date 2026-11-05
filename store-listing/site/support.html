@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Agent Board support</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <nav aria-label="Site"><strong>Agent Board</strong><a href="privacy.html">Privacy</a><a href="support.html" aria-current="page">Support</a></nav>
+  <main>
+    <h1>Support</h1>
+    <p>Agent Board reads local chat activity from the folders you select. It has no support upload, account registration or log-reporting service.</p>
+    <p>For help, email <a href="mailto:Spacelydigital@gmail.com">Spacelydigital@gmail.com</a>. The link opens your mail app. Agent Board does not send a message or attach chats, logs or other data automatically.</p>
+    <details open>
+      <summary>My chats do not appear.</summary>
+      <p>Open <strong>Agent Board → Setup and Permissions</strong> and select the source folders for the coding tools you use. An unselected or unavailable folder stays disconnected. Cloud-only chats are not included in the Store build.</p>
+    </details>
+    <details>
+      <summary>A chat is checking history or has no confirmed status.</summary>
+      <p>Agent Board verifies local session records before confirming that work has finished. A large, incomplete or changing file may take longer. Leave the board open, then check the source app if its status remains uncertain. Agent Board does not assume a quiet chat is finished.</p>
+    </details>
+    <details>
+      <summary>I see an old usage reading or no usage figure.</summary>
+      <p>Usage is a local observation, not a live account connection. Codex must have reported a weekly window in its local session records. Claude requires the optional local usage plugin and a compatible version. A normal response in the provider app may update the reading. Agent Board never sends a prompt to refresh it or assumes that a passed reset means a new full allowance.</p>
+      <p>If you switch accounts, clear old exports before relying on a reading. The Claude plugin's local files are <code>agent-board/usage/quota-v1-a.json</code> and <code>quota-v1-b.json</code> below the Claude folder you selected.</p>
+    </details>
+    <details>
+      <summary>Notifications are not appearing.</summary>
+      <p>Enable notifications in Agent Board and allow them in macOS System Settings under Notifications. Check Focus settings too. Monitoring still works when notifications are off or denied.</p>
+    </details>
+    <details>
+      <summary>The chat link does not open the right place.</summary>
+      <p>Open the coding tool directly and confirm the chat is still available. Exact-chat links depend on the provider app and its version. A reviewed or snoozed card changes only your board; it does not archive the original chat.</p>
+    </details>
+    <details>
+      <summary>I want to stop monitoring or remove local data.</summary>
+      <p>Forget the source folders in <strong>Setup and Permissions</strong> to stop reading them. Quit Agent Board to stop its collector. To remove the board's database and logs, first choose <strong>Open Local Data Folder</strong>, then quit the app and remove that folder. Your provider chats stay separate. Appearance settings and notification preferences are separate local stores.</p>
+      <p>If you installed the optional Claude exporter, disable or uninstall it in Claude and remove its two output files to clear its saved observations.</p>
+    </details>
+  </main>
+  <footer>Agent Board does not need your chats, passwords or diagnostic files for these steps.</footer>
+</body>
+</html>
