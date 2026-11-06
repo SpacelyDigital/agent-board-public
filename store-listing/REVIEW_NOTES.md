@@ -1,16 +1,30 @@
 # App Review notes draft
 
-This draft is **not ready to paste into App Store Connect**. The current
-0.2.5 build 25 candidate is an ad-hoc sandbox preview with an unsigned installer.
-Its final identifier, signing-key use, oldest-OS/VoiceOver tests,
-remaining exact-release workflows and Apple processing remain open.
+This draft is **not ready to paste into App Store Connect**. As of November 6,
+2026, 06:17 UTC, build 27 signing, builder checks and independent exact app/installer
+verification passed under `com.spacelydigital.agentboard`. Build 27 native
+workflows and Apple processing remain pending. App Store Connect record
+6831478051 exists as **Agent Board: AI Reply Alerts**. Draft version 0.2.5,
+support URL, manual release, subtitle and category were saved and verified after
+reload. Owner-authorized Transporter Verify and Deliver completed on November 6
+with sole warning 90889. Build 27 is attached to version 0.2.5 after save/reload,
+with Missing Compliance; encryption Manage was canceled unanswered. Installer
+on macOS 26 reported success; normal launch reached Setup and the Codex read-only
+picker without a Gatekeeper override or source grant. Installed identity/content,
+full native workflows and overall Apple/SDK/export acceptance remain open. The separate ad-hoc preview 27 passed bounded
+no-source, navigation, Light persistence, Sample review/return and window-reopen
+flows on macOS 13. No source grants, real providers, full minimum-OS or
+signed-distribution workflow pass on that OS is claimed. See
+[release status](../APP_STORE_READINESS.md). The build 25 user evidence below
+is historical; no build 27 provider prompt, complete minimum-OS pass or Apple-
+processing completion is claimed.
 
 The owner approved a free app with optional Ko-fi support and the public email
 **Spacelydigital@gmail.com**. The app has no reporting account, developer backend,
 analytics SDK, advertising tracker or crash uploader. It sends no board data or
 diagnostics to Spacely Digital automatically.
 
-## Current evidence for the release team
+## Preserved build 25 evidence for the release team
 
 All 412 source tests passed. Build 25 fixes an actual 24 first-launch failure caused
 by a hidden-only collector profile guard and root-owned 0700 license folders
@@ -59,7 +73,8 @@ controls, presentation persistence and normal Quit were observed. Build 21
 previously exercised real Codex Cooking, completion with the window closed,
 notification click and restart persistence. Earlier actual Claude question/
 answer and quota observations are historical evidence, not this artifact’s pass.
-Spoken VoiceOver and actual macOS 13 launch are still unverified.
+At those earlier checkpoints, actual macOS 13 launch had not been verified.
+Spoken VoiceOver and final signed-distribution macOS 13 workflows remain open.
 
 ## Product description for a final reviewer
 

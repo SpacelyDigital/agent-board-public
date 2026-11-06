@@ -329,8 +329,8 @@ class ClaudeProjectTests(unittest.TestCase):
 
     def test_native_task_title_matches_desktop_without_using_its_status(self):
         rows, _ = self.collect(FakeClient(thread=root(thread_status="idle", bound_sessions=[{
-            "title": "Strip and rebuild around four pages", "status_bucket": "completed"}])), [TASK])
-        self.assertEqual(rows[TASK]["title"], "Test project · Strip and rebuild around four pages")
+            "title": "Check keyboard navigation", "status_bucket": "completed"}])), [TASK])
+        self.assertEqual(rows[TASK]["title"], "Test project · Check keyboard navigation")
         self.assertEqual(rows[TASK]["status"], "disconnected")
 
     def test_idle_unread_thread_does_not_imply_completion(self):

@@ -42,6 +42,7 @@ TESTS = (
     "test_store_packaging.py", "test_store_branding.py", "test_store_privacy.py", "test_sample_board.py", "test_codex_history_store.py", "test_codex_history_verification.py", "test_codex_sqlite_snapshot.py", "test_source_discovery.py",
     "test_local_quota.py", "test_local_quota_workflow.py", "local_quota_mod_smoke.mjs", "local_quota_ui_smoke.cjs", "source_revocation_ui_smoke.cjs", "test_review_samples.py",
     "focus_retention_ui_smoke.cjs", "theme_compatibility_ui_smoke.cjs",
+    "native_log_storage_smoke.py",
 )
 SENSITIVE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"

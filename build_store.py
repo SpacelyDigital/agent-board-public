@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import plistlib
 import re
@@ -21,6 +22,7 @@ from install import RUNTIME_FILES, build_app
 
 
 HELPER = Path("Contents/Helpers/AgentBoardCollector.app")
+APPLE_GENERIC_REQUIREMENT = "=anchor apple generic"
 
 
 def checked(arguments, *, accepted=(0,)):
@@ -186,7 +188,40 @@ def validate_recipient_readability(app):
             raise ValueError("A bundled path is not recipient-readable: " + str(path.relative_to(app)))
 
 
+def validate_no_quarantine(path):
+    """Inspect upload metadata without removing attributes or following links."""
+    pending = [Path(path)]
+    inspected = 0
+    try:
+        if pending[0].is_symlink():
+            raise ValueError("The quarantine check requires a real build artifact.")
+        while pending:
+            entry = pending.pop()
+            before = entry.lstat()
+            if not (stat.S_ISDIR(before.st_mode) or stat.S_ISREG(before.st_mode)
+                    or stat.S_ISLNK(before.st_mode)):
+                raise ValueError("The quarantine check cannot inspect a special file.")
+            result = subprocess.run(["/usr/bin/xattr", "-s", str(entry)],
+                                    capture_output=True, timeout=10)
+            if result.returncode != 0 or result.stderr:
+                raise ValueError("The quarantine attributes could not be inspected.")
+            if b"com.apple.quarantine" in result.stdout.splitlines():
+                raise ValueError("A build artifact contains com.apple.quarantine; preserve it and rebuild from reviewed inputs.")
+            if stat.S_ISDIR(before.st_mode):
+                with os.scandir(entry) as children:
+                    pending.extend(Path(child.path) for child in children)
+            after = entry.lstat()
+            if (before.st_dev, before.st_ino, before.st_mode, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                    after.st_dev, after.st_ino, after.st_mode, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError("A build artifact changed during quarantine inspection.")
+            inspected += 1
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError("The quarantine attributes could not be inspected.") from error
+    return inspected
+
+
 def validate_store_bundle(app, configuration, profile=None):
+    validate_no_quarantine(app)
     validate_recipient_readability(app)
     checked(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
@@ -253,7 +288,7 @@ def validate_store_bundle(app, configuration, profile=None):
             raise ValueError("A signed executable identifier differs from its bundle metadata.")
         if distribution:
             # A certificate common name alone is not evidence of Apple issuance.
-            checked(["/usr/bin/codesign", "--verify", "--strict", "-R", "anchor apple generic", path])
+            checked(["/usr/bin/codesign", "--verify", "--strict", "-R", APPLE_GENERIC_REQUIREMENT, path])
             # Multiple Authority lines are returned leaf first; inspect leaf separately.
             text = checked(["/usr/bin/codesign", "-d", "--verbose=4", path]).stderr
             authorities = re.findall(r"^Authority=(.*)$", text, re.M)
@@ -275,6 +310,7 @@ def validate_store_bundle(app, configuration, profile=None):
     elif (app / "Contents/embedded.provisionprofile").exists() or (app / "Contents/embedded.provisionprofile").is_symlink():
         raise ValueError("This build must not contain an unexpected provisioning profile.")
     return {"native_components": native, "privacy_manifest_sha256": privacy_hashes,
+            "quarantine_attribute_absent": True,
             "excluded_python_modules": list(STORE_EXCLUDED_MODULES), "asset_source_mapping": assets,
             "generated_assets": {"static/about/privacy.html": {
                 "source": assets["static/about/privacy.html"],
@@ -285,6 +321,7 @@ def validate_store_bundle(app, configuration, profile=None):
 
 
 def verify_package(package, app, configuration):
+    validate_no_quarantine(package)
     distribution = configuration.signing_channel == "store-distribution"
     signature = checked(["/usr/sbin/pkgutil", "--check-signature", package], accepted=(0, 1))
     if distribution:
@@ -316,11 +353,13 @@ def verify_package(package, app, configuration):
         if len(entries) != 1 or entries[0].name != app.name or entries[0].is_symlink():
             raise ValueError("The package payload must contain only this app.")
         restored = entries[0]
+        validate_no_quarantine(restored)
         if bundle_snapshot(restored) != bundle_snapshot(app):
             raise ValueError("Packaging changed app bytes, executable modes, or symbolic links.")
         checked(["/usr/bin/codesign", "--verify", "--deep", "--strict", restored])
     return {"signature": "mac-installer-distribution" if distribution else "unsigned-local-preview",
-            "payload_exact": True, "installer_scripts": False, "install_location": "/Applications"}
+            "payload_exact": True, "installer_scripts": False, "install_location": "/Applications",
+            "quarantine_attribute_absent": True}
 
 
 def parse_arguments(argv=None):
@@ -387,6 +426,8 @@ def main():
         command += ["--sign", args.installer_signing_identity]
     checked(command + [package])
     package_proof = verify_package(package, app, configuration)
+    validate_no_quarantine(app)
+    validate_no_quarantine(package)
     report = {"version": configuration.version, "build": configuration.build_number,
               "bundle_id": configuration.bundle_id, "channel": configuration.signing_channel,
               "store_support_strategy": configuration.store_support_strategy,

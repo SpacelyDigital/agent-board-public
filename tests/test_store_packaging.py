@@ -6,16 +6,21 @@ import io
 import os
 import stat
 import subprocess
+import sys
 import contextlib
 from pathlib import Path
 import plistlib
+import shutil
 import struct
 import tempfile
 import unittest
 import uuid
 from unittest.mock import patch
 
-from build_store import ROOT, HELPER, bundle_snapshot, parse_arguments, validate_profile, validate_privacy, validate_store_asset_exclusions, validate_recipient_readability
+import build_store
+from build_store import (ROOT, HELPER, bundle_snapshot, parse_arguments, validate_profile, validate_privacy,
+                         validate_store_asset_exclusions, validate_recipient_readability, validate_no_quarantine,
+                         validate_store_bundle, verify_package, APPLE_GENERIC_REQUIREMENT)
 from build_support import (AppConfiguration, codesign_command, stage_runtime_assets,
                            validate_profile_free_capabilities, SANDBOX_APP_ENTITLEMENTS,
                            SANDBOX_HELPER_ENTITLEMENTS)
@@ -54,6 +59,23 @@ class StoreSigningPolicyTests(unittest.TestCase):
         naive = deepcopy(self.profile)
         naive["ExpirationDate"] = naive["ExpirationDate"].replace(tzinfo=None)
         self.assertEqual(validate_profile(naive, self.identifier, self.team, self.now), value)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses the actual macOS code requirement verifier")
+    def test_apple_anchor_requirement_verifies_signed_copy_instead_of_opening_a_requirement_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            control = Path(directory) / "signed-system-control"
+            shutil.copyfile("/bin/ls", control)
+            shutil.copymode("/bin/ls", control)
+            before = control.read_bytes()
+            arguments = ["/usr/bin/codesign", "--verify", "--strict", "-R"]
+            old = subprocess.run(arguments + ["anchor apple generic", str(control)],
+                                 cwd=directory, capture_output=True, text=True)
+            self.assertNotEqual(old.returncode, 0)
+            self.assertIn("invalid requirement specification", old.stderr)
+            current = subprocess.run(arguments + [APPLE_GENERIC_REQUIREMENT, str(control)],
+                                     cwd=directory, capture_output=True, text=True)
+            self.assertEqual(current.returncode, 0, current.stderr)
+            self.assertEqual(control.read_bytes(), before)
 
     def test_development_enterprise_expired_other_app_other_team_profiles_fail(self):
         replacements = [
@@ -164,13 +186,26 @@ class StoreSigningPolicyTests(unittest.TestCase):
             self.assertFalse(output.exists())
 
     def test_output_cannot_replace_checkpoints_escape_or_follow_symlinks(self):
-        with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="store-output-policy-") as directory:
-            existing = Path(directory)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            existing = root / "build/preserved-checkpoint"
+            existing.mkdir(parents=True)
+            marker = existing / "keep"
+            marker.write_bytes(b"preserved fixture")
+            outside = root / "outside"
+            outside.mkdir()
+            canary = outside / "keep"
+            canary.write_bytes(b"outside fixture")
             link = existing / "outside-link"
-            link.symlink_to(Path(tempfile.gettempdir()))
-            for output in (existing, ROOT / "build/../README.md", existing / "new-child", link / "new-child"):
-                with self.subTest(output=output.name), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
-                    self.arguments("--preview", "--output", str(output))
+            link.symlink_to(outside, target_is_directory=True)
+            with patch("build_store.ROOT", root):
+                for output in (existing, root / "build/../README.md", existing / "new-child", link / "new-child"):
+                    with self.subTest(output=output.name), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                        self.arguments("--preview", "--output", str(output))
+            self.assertEqual(marker.read_bytes(), b"preserved fixture")
+            self.assertEqual(canary.read_bytes(), b"outside fixture")
+            self.assertFalse((existing / "new-child").exists())
+            self.assertFalse((outside / "new-child").exists())
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             (root / "build").symlink_to(Path(tempfile.gettempdir()), target_is_directory=True)
@@ -187,6 +222,177 @@ class StoreSigningPolicyTests(unittest.TestCase):
         self.assertNotIn("runtime", codesign_command("Apple Distribution: Example", "store-distribution"))
         self.assertIn("runtime", codesign_command("Developer ID Application: Example", "direct"))
         self.assertNotIn("--timestamp", codesign_command(None, "store-preview"))
+
+
+class StoreQuarantineTests(unittest.TestCase):
+    def fixture(self, root):
+        app = root / "Fixture.app"
+        resource = app / "Contents/Resources/fixture"
+        resource.parent.mkdir(parents=True)
+        resource.write_bytes(b"owned quarantine fixture")
+        package = root / "fixture.pkg"
+        package.write_bytes(b"owned package fixture")
+        return app, resource, package
+
+    def add_quarantine(self, path, value="0081;00000000;AgentBoard-fixture;"):
+        subprocess.run(["/usr/bin/xattr", "-w", "com.apple.quarantine", value, str(path)],
+                       check=True, capture_output=True)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses real macOS extended attributes")
+    def test_real_clean_app_package_and_internal_symlink_are_inspected_without_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app, resource, package = self.fixture(Path(directory))
+            alias = app / "resource-alias"
+            alias.symlink_to("Contents/Resources/fixture")
+            before = bundle_snapshot(app)
+            self.assertEqual(validate_no_quarantine(app), 5)
+            self.assertEqual(validate_no_quarantine(package), 1)
+            self.assertEqual(bundle_snapshot(app), before)
+            self.assertEqual(package.read_bytes(), b"owned package fixture")
+            self.assertEqual(resource.read_bytes(), b"owned quarantine fixture")
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses real macOS extended attributes")
+    def test_real_quarantine_on_app_directory_nested_file_or_package_is_rejected_and_preserved(self):
+        for which, value in ((0, "0081;00000000;AgentBoard-fixture;"), (1, ""), (2, "fixture")):
+            with self.subTest(which=which), tempfile.TemporaryDirectory() as directory:
+                app, resource, package = self.fixture(Path(directory))
+                target = (app, resource, package)[which]
+                self.add_quarantine(target, value)
+                before = bundle_snapshot(app)
+                mode = target.lstat().st_mode
+                with self.assertRaisesRegex(ValueError, "contains com.apple.quarantine"):
+                    validate_no_quarantine(package if which == 2 else app)
+                kept = subprocess.run(["/usr/bin/xattr", "-p", "com.apple.quarantine", str(target)],
+                                      check=True, capture_output=True)
+                self.assertEqual(kept.stdout.rstrip(b"\n"), value.encode())
+                self.assertEqual(target.lstat().st_mode, mode)
+                self.assertEqual(bundle_snapshot(app), before)
+                self.assertEqual(package.read_bytes(), b"owned package fixture")
+
+    def test_attribute_listing_is_nofollow_and_other_attribute_names_are_allowed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app, _, _ = self.fixture(Path(directory))
+            alias = app / "dangling-alias"
+            alias.symlink_to("not-present")
+            calls = []
+
+            def inspect(arguments, **kwargs):
+                calls.append(arguments)
+                self.assertEqual(arguments[:2], ["/usr/bin/xattr", "-s"])
+                self.assertEqual(kwargs, {"capture_output": True, "timeout": 10})
+                return subprocess.CompletedProcess(arguments, 0, b"com.apple.FinderInfo\n", b"")
+
+            with patch("build_store.subprocess.run", side_effect=inspect):
+                self.assertEqual(validate_no_quarantine(app), 5)
+            self.assertEqual({Path(args[-1]) for args in calls}, {app, app / "Contents", app / "Contents/Resources",
+                                                                 app / "Contents/Resources/fixture", alias})
+            with self.assertRaisesRegex(ValueError, "real build artifact"):
+                validate_no_quarantine(alias)
+
+    def test_missing_tool_timeout_nonzero_and_stderr_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app, _, _ = self.fixture(Path(directory))
+            failures = [FileNotFoundError("fixture tool absent"), PermissionError("fixture denied"),
+                        subprocess.TimeoutExpired("xattr", 10),
+                        subprocess.CompletedProcess([], 1, b"", b"fixture denied"),
+                        subprocess.CompletedProcess([], 0, b"", b"fixture incomplete inspection")]
+            for failure in failures:
+                with self.subTest(failure=type(failure).__name__):
+                    arguments = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}
+                    with patch("build_store.subprocess.run", **arguments), self.assertRaisesRegex(ValueError, "could not be inspected"):
+                        validate_no_quarantine(app)
+
+    def test_missing_special_or_unenumerable_paths_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app, _, _ = self.fixture(root)
+            clean = subprocess.CompletedProcess([], 0, b"", b"")
+            with self.assertRaisesRegex(ValueError, "could not be inspected"):
+                validate_no_quarantine(root / "missing")
+            fifo = app / "fifo"
+            os.mkfifo(fifo)
+            with patch("build_store.subprocess.run", return_value=clean), self.assertRaisesRegex(ValueError, "special file"):
+                validate_no_quarantine(app)
+            fifo.unlink()
+            with patch("build_store.subprocess.run", return_value=clean), \
+                    patch("build_store.os.scandir", side_effect=PermissionError("fixture denied")), \
+                    self.assertRaisesRegex(ValueError, "could not be inspected"):
+                validate_no_quarantine(app)
+
+    def test_path_change_during_inspection_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            _, _, package = self.fixture(Path(directory))
+
+            def changed(arguments, **kwargs):
+                package.write_bytes(b"fixture changed during inspection")
+                return subprocess.CompletedProcess(arguments, 0, b"", b"")
+
+            with patch("build_store.subprocess.run", side_effect=changed), self.assertRaisesRegex(ValueError, "changed during"):
+                validate_no_quarantine(package)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses real macOS extended attributes")
+    def test_app_and_package_quarantine_stop_before_signer_or_installer_tools(self):
+        config = AppConfiguration("com.example.quarantine", "0.2.5", "1", signing_channel="store-preview")
+        with tempfile.TemporaryDirectory() as directory:
+            app, resource, package = self.fixture(Path(directory))
+            for path, operation in ((resource, lambda: validate_store_bundle(app, config)),
+                                    (package, lambda: verify_package(package, app, config))):
+                self.add_quarantine(path)
+                with self.subTest(path=path.name), \
+                        patch("build_store.checked", side_effect=AssertionError("No signature or package tool may run")), \
+                        self.assertRaisesRegex(ValueError, "contains com.apple.quarantine"):
+                    operation()
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses real macOS extended attributes")
+    def test_quarantine_inside_expanded_payload_fails_despite_matching_bytes_and_modes(self):
+        config = AppConfiguration("com.example.quarantine", "0.2.5", "1", signing_channel="store-preview")
+        with tempfile.TemporaryDirectory() as directory:
+            app, _, package = self.fixture(Path(directory))
+
+            def tools(arguments, **kwargs):
+                if arguments[:2] == ["/usr/sbin/pkgutil", "--check-signature"]:
+                    return subprocess.CompletedProcess(arguments, 1, "No signature", "")
+                self.assertEqual(arguments[:2], ["/usr/sbin/pkgutil", "--expand-full"])
+                component = Path(arguments[-1]) / "Fixture.pkg"
+                restored = component / "Payload" / app.name
+                shutil.copytree(app, restored)
+                (component / "PackageInfo").write_text('<pkg-info install-location="/Applications"/>')
+                self.add_quarantine(restored / "Contents/Resources/fixture")
+                self.assertEqual(bundle_snapshot(restored), bundle_snapshot(app))
+                return subprocess.CompletedProcess(arguments, 0, "", "")
+
+            with patch("build_store.checked", side_effect=tools), \
+                    self.assertRaisesRegex(ValueError, "contains com.apple.quarantine"):
+                verify_package(package, app, config)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Uses real macOS extended attributes")
+    def test_late_package_quarantine_prevents_build_success_report(self):
+        config = AppConfiguration("com.example.quarantine", "0.2.5", "1", signing_channel="store-preview")
+        args = type("Arguments", (), {"distribution": False, "profile_free": False,
+                                      "app_signing_identity": None, "provisioning_profile": None})()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app, _, _ = self.fixture(root)
+            output = root / "new-build-output"
+
+            def productbuild(arguments, **kwargs):
+                Path(arguments[-1]).write_bytes(b"owned package fixture")
+
+            def late_attribute(package, *args):
+                self.add_quarantine(package)
+                return {}
+
+            with patch("build_store.parse_arguments", return_value=(args, config, output)), \
+                    patch("build_store.source_hashes", return_value={}), patch("build_store.build_app", return_value=app), \
+                    patch("build_store.validate_store_bundle", return_value={}), \
+                    patch("build_store.checked", side_effect=productbuild), \
+                    patch("build_store.verify_package", side_effect=late_attribute), \
+                    self.assertRaisesRegex(ValueError, "contains com.apple.quarantine"):
+                build_store.main()
+            self.assertFalse((output / "STORE-PACKAGE-CHECKS.json").exists())
+            package = next(output.glob("*.pkg"))
+            self.assertIn(b"com.apple.quarantine", subprocess.run(["/usr/bin/xattr", str(package)],
+                                                                  check=True, capture_output=True).stdout.splitlines())
 
 
 class StoreArtifactTests(unittest.TestCase):

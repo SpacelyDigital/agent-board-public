@@ -1,11 +1,11 @@
 # Mac distribution
 
-The current Store engineering candidate is **0.2.5 build 25** with explicit
+The preserved Store engineering candidate is **0.2.5 build 25** with explicit
 US-only optional support. It is an ad-hoc signed Apple-silicon app and unsigned
 installer, not a final Store package. Submission readiness is false. The owner
 approved a free launch; optional donations do not unlock features.
 
-## Current build and restrictions
+## Preserved build 25 evidence
 
 All 412 source tests passed before freezing 85 runtime/build inputs and 163 source
 files. Build 25 fixes the actual 24 startup rejection and recipient-inaccessible
@@ -24,14 +24,29 @@ for exact hashes and scope limits.
 
 The app bundles its Python runtime and interface resources. Recipients should
 not install Python, Xcode or command-line tools. Apple silicon/macOS 13 is the
-target; actual macOS 13 launch and Intel support have not been established.
+target. A separate ad-hoc preview 27 passed bounded no-source, navigation,
+presentation persistence, Sample-review/return and window-reopen flows on macOS 13.
+Connected/full minimum-OS and signed-distribution workflows remain unverified;
+Intel support is not claimed.
 
-The final registered product identifier, signing-key use, final distribution
-package and Apple processing remain open. Local preview identifiers are not
-claims of product registration. Existing certificates and earlier notarized
-Developer ID downloads do not establish Store signing of build 25. No key
-export, automatic credential discovery or owner-approval bypass is part of this
-workflow.
+## Shipping preparation, November 6, 2026
+
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
+
+Build 27 uses the registered release App ID
+`com.spacelydigital.agentboard`; application/installer signing and builder package
+checks and independent exact signed app/installer verification passed.
+App Store Connect record 6831478051 exists as **Agent Board: AI Reply Alerts**;
+draft version 0.2.5, support URL, manual release, subtitle and category were
+verified after save/reload. Owner-authorized Transporter Verify and Deliver
+completed on November 6 with sole warning 90889. Build 27 is saved/reloaded as
+attached to version 0.2.5, with Missing Compliance; the encryption dialog was
+canceled unanswered. Installer on macOS 26 reported success; normal launch
+reached Setup and the Codex read-only picker, with no grant yet. No provider,
+full minimum-OS, overall processing/compliance or App Review pass
+is claimed; SDK/export and remaining listing fields stay open.
+See [packaging status](APP_STORE_PACKAGING.md) and
+[release gates](APP_STORE_READINESS.md). Build 25 evidence above remains separate.
 
 ## Local preview build
 
@@ -112,9 +127,10 @@ independently verified. Source/archive bytes, restored app types/modes/links,
 signatures and prior private checkpoints were checked. Those backups are the
 closed first-phase snapshot; later validation does not rewrite them.
 
-This separately authorized public source snapshot uses that reviewed clean
-source with current nonruntime documentation. It includes no historical private
-repository ancestry. Publication of source is not an App Store release or a new
+The preserved public build 25 source snapshot used that reviewed clean build 25
+source with publication-time nonruntime documentation. That documentation-only
+scope does not describe later build 27 runtime changes. It includes no historical
+private repository ancestry. Publication of source is not an App Store release or a new
 license grant. No open-source license has been selected for Agent Board itself.
 Keep `THIRD_PARTY.md`, `licenses/` and provider-icon notices unchanged.
 

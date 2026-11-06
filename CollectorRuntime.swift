@@ -105,6 +105,68 @@ final class CollectorRuntime {
         }
     }
 
+    // Open only the app's own single-link regular log. Keep operations anchored
+    // to its directory descriptor, and never recursively remove rotation paths.
+    static func openCollectorLog(in directory: URL) throws -> FileHandle {
+        let flags = O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+        let parent = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | flags)
+        guard parent >= 0 else { throw RuntimeError.unavailable }
+        defer { Darwin.close(parent) }
+        var parentInfo = stat()
+        guard fstat(parent, &parentInfo) == 0,
+              (parentInfo.st_mode & S_IFMT) == S_IFDIR, parentInfo.st_uid == getuid() else {
+            throw RuntimeError.unavailable
+        }
+        func checked(_ descriptor: Int32, name: String) throws -> stat {
+            var info = stat()
+            var named = stat()
+            guard fstat(descriptor, &info) == 0,
+                  (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid(), info.st_nlink == 1,
+                  fstatat(parent, name, &named, AT_SYMLINK_NOFOLLOW) == 0,
+                  named.st_dev == info.st_dev, named.st_ino == info.st_ino,
+                  (named.st_mode & S_IFMT) == S_IFREG, named.st_uid == getuid(), named.st_nlink == 1 else {
+                throw RuntimeError.unavailable
+            }
+            return info
+        }
+        var descriptor = openat(parent, "collector.log", O_WRONLY | O_APPEND | O_CREAT | flags, 0o600)
+        guard descriptor >= 0 else { throw RuntimeError.unavailable }
+        defer { if descriptor >= 0 { Darwin.close(descriptor) } }
+        let info = try checked(descriptor, name: "collector.log")
+        guard fchmod(descriptor, 0o600) == 0 else { throw RuntimeError.unavailable }
+        if info.st_size > 2_000_000 {
+            var previousInfo = stat()
+            let existing = fstatat(parent, "collector.previous.log", &previousInfo, AT_SYMLINK_NOFOLLOW)
+            var previous: Int32 = -1
+            defer { if previous >= 0 { Darwin.close(previous) } }
+            if existing == 0 {
+                previous = openat(parent, "collector.previous.log", O_RDONLY | flags)
+                guard previous >= 0 else { throw RuntimeError.unavailable }
+                _ = try checked(previous, name: "collector.previous.log")
+            } else if errno != ENOENT {
+                throw RuntimeError.unavailable
+            }
+            // Recheck both names immediately before the single nonrecursive
+            // rename. Directories, links and special files are never removed.
+            _ = try checked(descriptor, name: "collector.log")
+            if previous >= 0 { _ = try checked(previous, name: "collector.previous.log") }
+            let renamed = existing == 0
+                ? renameat(parent, "collector.log", parent, "collector.previous.log")
+                : renameatx_np(parent, "collector.log", parent, "collector.previous.log", UInt32(RENAME_EXCL))
+            guard renamed == 0 else { throw RuntimeError.unavailable }
+            _ = try checked(descriptor, name: "collector.previous.log")
+            Darwin.close(descriptor)
+            descriptor = openat(parent, "collector.log", O_WRONLY | O_APPEND | O_CREAT | O_EXCL | flags, 0o600)
+            guard descriptor >= 0 else { throw RuntimeError.unavailable }
+            _ = try checked(descriptor, name: "collector.log")
+            guard fchmod(descriptor, 0o600) == 0 else { throw RuntimeError.unavailable }
+        }
+        _ = try checked(descriptor, name: "collector.log")
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        descriptor = -1
+        return handle
+    }
+
     private func sandboxSources(data: URL) throws -> [String: URL] {
         var sources: [String: [String: String]] = [:]
         var roots: [String: URL] = [:]
@@ -224,17 +286,7 @@ final class CollectorRuntime {
             try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
-            if let attributes = try? FileManager.default.attributesOfItem(atPath: logURL.path),
-               (attributes[.size] as? NSNumber)?.intValue ?? 0 > 2_000_000 {
-                let previous = data.appendingPathComponent("collector.previous.log")
-                try? FileManager.default.removeItem(at: previous)
-                try? FileManager.default.moveItem(at: logURL, to: previous)
-            }
-            if !FileManager.default.fileExists(atPath: logURL.path) {
-                FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-            }
-            logHandle = try FileHandle(forWritingTo: logURL)
-            try logHandle?.seekToEnd()
+            logHandle = try Self.openCollectorLog(in: data)
             let child = Process()
             let lifetime = Pipe()
             _ = fcntl(lifetime.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)

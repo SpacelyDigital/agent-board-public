@@ -2,15 +2,15 @@
 
 All copy is a draft pending exact-artifact verification and owner review.
 The approved price is **Free**. Optional support does not unlock features.
-No listing has been submitted or published.
+The listing has not been submitted for App Review or published.
 
 ## Name
 
-Agent Board
+Agent Board: AI Reply Alerts
 
 ## Subtitle
 
-Track your coding-agent chats
+Status for Codex and Claude
 
 ## Promotional text
 
@@ -61,20 +61,36 @@ coding,agent,chat,status,developer,workflow,local
 
 ## Category and release notes
 
-Proposed category: Developer Tools.
+Category: Developer Tools, saved and verified in App Store Connect.
 
 Initial release notes: A local dashboard for coding-agent status, review history,
 provider handoff, cached quota windows and customizable appearance.
 
 ## Final configuration gates
 
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
+
 - The owner approved **Spacelydigital@gmail.com** as the public support contact.
 - Set the actual listing price to Free. Seller details, availability and full
   App Review contact information still require final account configuration.
-- The final registered bundle identifier and usable Store signing route are
-  unverified. Engineering preview identifiers are not product registrations.
-- Target hardware is Apple silicon with macOS 13; actual minimum-OS installation/
-  launch remains unverified and Intel support is not claimed.
+- November 6, 2026: `com.spacelydigital.agentboard` is registered; build 27
+  signing, builder checks and independent exact app/installer verification passed.
+  Build 27 signed-distribution workflows and Apple processing remain pending.
+  App Store Connect record 6831478051 exists with the owner-selected name above.
+  Draft version 0.2.5, the approved support URL and manual release were saved,
+  reloaded and verified. The subtitle above and Developer Tools category were
+  also saved and verified. Owner-authorized Transporter Verify and Deliver
+  completed on November 6 with sole warning 90889. Build 27 is attached to 0.2.5
+  with Missing Compliance after save/reload; encryption Manage was canceled
+  unanswered. Installer on macOS 26 reported success; normal launch reached Setup
+  and the Codex read-only picker, with no grant or full workflow pass. See
+  [release status](../APP_STORE_READINESS.md); no overall processing/compliance,
+  App Review or release approval is claimed.
+- Target hardware is Apple silicon with macOS 13. Ad-hoc preview 27 passed bounded
+  no-source dashboard, local Privacy/navigation, Light persistence, Sample review/
+  return and window-reopen flows there. Source grants, real providers, complete
+  minimum-OS and signed-distribution workflows remain unverified; Intel support
+  is not claimed.
 - Bounded actual build 25 upgrade/startup, license/privacy/support handoff,
   two real provider turns, exact links/review, source reconnection and manual
   Quit/reopen passed. VoiceOver, clean first-grant setup, independent country
@@ -84,8 +100,9 @@ provider handoff, cached quota windows and customizable appearance.
 - Verified Privacy Policy URL:
   https://spacelydigital.github.io/agent-board-support/privacy.html
   These four static website files passed exact HTTP byte readback, independent
-  source inspection and actual live desktop/narrow navigation. Final App Store
-  Connect entry and Apple processing are still pending.
+  source inspection and actual live desktop/narrow navigation. The support URL
+  is verified in App Store Connect; remaining fields and Apple processing are
+  still pending.
 - Final App Privacy answers must match the entire artifact and documented
   voluntary support flows. Automatic developer collection is absent; this draft
   does not substitute for final Apple-form review or Apple processing.

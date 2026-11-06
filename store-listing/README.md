@@ -1,7 +1,7 @@
 # Store listing drafts
 
 These files prepare the Mac App Store listing and static website copy. The
-listing has not been uploaded to Apple or approved for release. The separate
+listing has not been submitted for review or approved for release. The separate
 Support and Privacy website was owner-approved and published.
 
 - `APP_STORE_METADATA.md` contains proposed listing text, verified website URLs
@@ -18,15 +18,29 @@ live desktop/narrow navigation. The site has no scripts, remote assets,
 analytics, forms or log uploader. Its mail link opens the user's mail app with
 no prefilled message or attachment. Monitoring does not load the website.
 
-The owner approved a free app and **Spacelydigital@gmail.com** as the public
-support contact. Final seller details, registered product identifier,
-availability and App Review contact still need actual App Store Connect
-configuration. A working website is not Apple approval of the app or listing.
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
 
-The current preview passed bounded actual provider/notification, review,
-source-reconnection and About/Privacy keyboard checks. Final Store signing,
-clean first-grant setup, actual macOS 13, complete accessibility and quota
-limitations remain release gates. Keep the source, fixture, actual-user and
+The owner approved a free app and **Spacelydigital@gmail.com** as the public
+support contact. The release App ID `com.spacelydigital.agentboard` is registered.
+App Store Connect record 6831478051 exists as **Agent Board: AI Reply Alerts**.
+Draft version 0.2.5, support URL, manual release, subtitle and category were
+verified after save/reload. Owner-authorized Transporter Verify and Deliver
+completed on November 6 with sole warning 90889. Build 27 is attached to version
+0.2.5 with Missing Compliance; no encryption answer was saved. Overall processing,
+SDK/export and remaining release configuration are open. Build 27’s
+application/installer signing, builder checks and independent exact-package
+verification passed. Installer on macOS 26 reported success, and normal launch
+reached Setup and the Codex read-only picker without a source grant. Full native
+release workflows and installed-identity/content readback remain pending. Seller, availability and review
+contact fields still need final configuration. See
+[release status](../APP_STORE_READINESS.md). A working website is not Apple approval of the app or listing.
+
+The preserved build 25 preview passed bounded actual provider/notification, review,
+source-reconnection and About/Privacy keyboard checks. Final Store delivery/
+processing, source grants/denials, complete minimum-OS and accessibility coverage,
+and quota limitations remain release gates. Preview 27 passed bounded no-source,
+navigation, persistence and Sample flows on macOS 13. No real provider or
+signed-distribution workflow pass on that OS is claimed. Keep the source, fixture, actual-user and
 final-Store scopes separate before submitting these drafts.
 
 Optional Ko-fi support does not unlock features. Hidden support is the builder

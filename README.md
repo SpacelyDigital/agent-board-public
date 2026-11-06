@@ -5,12 +5,42 @@ Desktop’s Code tab. It shows which chats are working, waiting for your input o
 have a reply ready. Open returns to the original chat. Reviewed moves an item
 into dashboard history until new activity without changing the source chat.
 
-## Current engineering candidate
+## Shipping candidate, November 6, 2026
 
-The current source snapshot is **0.2.5 build 25**, an Apple-silicon App Sandbox
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
+
+The current shipping preparation is **0.2.5 build 27**, using the registered App
+ID `com.spacelydigital.agentboard` and explicit US-only optional support. Both
+application and installer signing completed, and the builder’s exact-package
+checks passed. Independent verification of the exact signed app and installer
+also passed. On macOS 26, Installer reported success and normal launch reached
+initial Setup and the Codex read-only picker without a Gatekeeper override.
+No source grant or provider workflow has been exercised yet. On macOS 13, the separate ad-hoc preview 27 passed bounded
+no-source dashboard, local Privacy navigation, Light-mode Quit/reopen persistence,
+Sample-board review/return and closed-window reopen checks. No connected-provider,
+complete minimum-OS or signed-distribution pass follows from those checks.
+
+The App Store Connect record now exists as **Agent Board: AI Reply Alerts**.
+Draft version 0.2.5, the support URL and manual release were saved and verified
+after reload; the subtitle and Developer Tools category were also saved and
+verified. On November 6, Transporter Verify succeeded with warning 90889 and
+Deliver completed at 01:07 local time. Build 27 was later selectable and its
+attachment to version 0.2.5 was saved and reloaded, with status Missing Compliance.
+The encryption question was canceled unanswered. This profile-free package is
+not TestFlight-eligible; no overall processing/compliance, App Review or release
+acceptance is claimed.
+Submission readiness remains false. See
+[packaging status](APP_STORE_PACKAGING.md) and
+[remaining release gates](APP_STORE_READINESS.md). The following build 25
+results remain historical evidence for that earlier preview.
+
+## Preserved build 25 checkpoint
+
+The preserved checkpoint is **0.2.5 build 25**, an Apple-silicon App Sandbox
 engineering preview. Its tested app was ad-hoc signed and its installer unsigned.
-It is **not ready for App Store submission**. macOS 13 is the deployment target;
-actual installation and launch on macOS 13 and Intel support remain unverified.
+At that checkpoint it was **not ready for App Store submission**. macOS 13 was
+the deployment target; its actual minimum-OS installation/launch had not been
+verified. Later preview 27 checks are scoped above; Intel support is not claimed.
 
 All **412 source tests** passed. Independent package inspection and **54 checks**
 under a derivative native sandbox parent are supporting evidence, separate from
@@ -38,11 +68,12 @@ test. About/Privacy/back links worked with Tab and Return. Final normal Quit and
 orderly test-system shutdown were visually observed. Complete keyboard,
 VoiceOver and process/network cleanup proof remain separate.
 
-This public snapshot comes from the reviewed clean build 25 source, with current
-nonruntime documentation. It does not publish the older private repository's
-history, user data or private validation evidence. Local and private source/
-artifact backups were independently verified and remain separate from release
-approval. See [APP_STORE_READINESS.md](APP_STORE_READINESS.md) for scope and gates.
+This source includes later shipping changes alongside the preserved build 25
+history. The separate public build 25 snapshot and its verified local/private
+backups remain unchanged; a final build 27 source/artifact backup is not claimed
+here. Private repository ancestry, user data and raw validation evidence remain
+excluded from clean source distribution. See
+[APP_STORE_READINESS.md](APP_STORE_READINESS.md) for scope and release gates.
 
 ## Using the board
 
@@ -124,7 +155,8 @@ from the installed app. [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md) describ
 explicit local packaging inputs; the build tool does not install or upload.
 [DISTRIBUTION.md](DISTRIBUTION.md) and [APP_STORE_READINESS.md](APP_STORE_READINESS.md)
 separate source, fixture, native and actual-provider evidence. All prior private
-checkpoints remain preserved. No final Store upload or release has occurred.
+checkpoints remain preserved. Delivered build 27 is attached to version 0.2.5
+with Missing Compliance; no App Review or release result is established.
 
 Agent Board is independent of OpenAI and Anthropic. Their names belong to their
 owners; provider compatibility and distribution authorization remain release

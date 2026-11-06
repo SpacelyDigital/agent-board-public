@@ -1,14 +1,96 @@
 # Mac App Store readiness
 
-Status on November 5, 2026: **not ready for submission**. The owner approved a
-free launch with optional Ko-fi support. No App Store upload, release approval
-or successful final signed package is established.
+Status as of November 6, 2026, 06:17 UTC: **not ready for submission**. The owner approved a
+free launch with optional Ko-fi support. The signed build 27 package completed
+its builder checks and independent exact app/installer verification. Remaining
+native and Apple release workflows remain open. Delivered build 27 is attached
+to version 0.2.5 with Missing Compliance; App Review and release remain pending.
 
-## Exact current candidate
+## Build 27 shipping preparation
 
-The current engineering preview is 0.2.5 build 25, explicit `us-external` support,
-Apple silicon and a macOS 13 deployment target. Its app is ad-hoc signed and its
-installer is unsigned. The final product identifier remains unverified.
+The registered release App ID is `com.spacelydigital.agentboard`. Application and
+Mac Installer Distribution signing succeeded. Build 27’s builder passed exact
+payload, signature, entitlement, resource, recipient-access and quarantine
+checks. Independent exact signed app/installer verification also passed,
+including payload types/bytes/modes/links, signing roles, entitlements, recipient
+access, resource exclusions and quarantine checks. This is static package proof;
+it does not establish installed behavior or Apple processing.
+
+The signed package is 10,374,279 bytes with SHA-256
+`ef1d0fdcbe701ce055e2e6d395ae4d57454a7ff9c771d820d144ca63ed1ef2ad`.
+Exact current main/helper and builder-check hashes are recorded in
+[ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json). Detailed packaging
+history is in [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md).
+
+App Store Connect record **6831478051** now exists under the owner-selected
+listing name **Agent Board: AI Reply Alerts**. It is a macOS, English (US) record
+with bundle ID and SKU `com.spacelydigital.agentboard`, in Prepare for Submission.
+The draft was saved, reloaded and verified as version 0.2.5, with Support URL
+`https://spacelydigital.github.io/agent-board-support/` and manual release selected
+(automatic release off). The subtitle “Status for Codex and Claude” and Developer
+Tools category were also saved, reloaded and verified. Other listing fields
+remain incomplete. No build has been submitted for App Review or released.
+
+At 01:01 on November 6, 2026 (America/New_York), Transporter Verify succeeded for
+the exact signed **Agent Board: AI Reply Alerts** 0.2.5 (27) package with one
+warning, 90889: without a provisioning profile, it cannot be used with
+TestFlight. The owner explicitly approved Verify and Deliver. Deliver completed
+at 01:07 with “Delivered with Warning”; its issue view showed the same sole
+90889 warning and “The app is processing”. That is the dated delivery-time
+observation, not an assertion of the latest processing state.
+
+Later, exact build 27 became selectable in Add Build. Its attachment to version
+0.2.5 was saved, reloaded and verified, with status **Missing Compliance**. The
+encryption Manage dialog showed no selected radio option and was canceled;
+no encryption answer was saved. This establishes build selection/attachment,
+not overall Apple processing, SDK/privacy or export-compliance acceptance.
+
+Apple’s unrestricted profile-free Mac App Store route is distinct from
+TestFlight’s profile requirement. The warning and route were independently
+reviewed; no profile was fabricated or warning suppressed. See
+[packaging notes](APP_STORE_PACKAGING.md). Delivery does not establish completed
+Apple processing, SDK/export approval, App Review or release.
+
+On macOS 13, the separate ad-hoc preview 27 was installed via Finder and rendered
+the no-source dashboard: both providers disconnected, both usage panels
+unavailable, zero counts and unavailable source footers. Source-picker Cancel
+returned to Setup without selecting a source. About, local Privacy, back to
+About and return to the board worked. Light mode persisted after native Quit
+and Finder/Dock reopen, with no repeated Setup.
+
+The clearly labeled Sample board changed two Cooking items to two Ready items.
+Reviewing the sample Claude reply left one Ready, one Reviewed and native
+attention count one. Return to Live restored the original empty no-source board
+and Light mode. Closing the window and clicking the status icon reopened it.
+These are actual preview UI observations, not real provider responses or a
+forensic inspection of guest storage/processes/network. The test VM is paused.
+
+Earlier initial-Setup Cancel closed the window; a Dock menu showed Open but no
+Quit item, and a fresh Dock Open returned to Setup. Those observations do not
+establish process termination, a crash or a precise startup cause. No source
+grant/revocation, VoiceOver, notification/login/reboot or real provider workflow
+was exercised on macOS 13. Complete minimum-OS and installed signed-distribution
+acceptance remain open. No build 27 provider prompt or Apple-processing
+completion is claimed. Build 25’s two real prompts remain historical evidence only.
+
+On macOS 26, the native Installer UI reported success for the signed package.
+Normal launch reached initial Setup and the Codex read-only folder picker,
+without a Gatekeeper override. No source grant has been confirmed and no build
+27 provider prompt was sent. These are bounded installer/launch/picker results,
+not authenticated monitoring or a complete native/provider workflow pass.
+
+Finder showed a new folder in Applications containing a green Agent Board.app,
+displayed as 22.9 MB. No guest Info.plist, installed content or signature readback
+has been performed, and the cause of the observed folder location has not been
+established. Exact installed identity/content and the remaining source-grant/
+monitoring workflows remain open.
+
+## Preserved build 25 preview
+
+The preserved engineering preview is 0.2.5 build 25, explicit `us-external` support,
+Apple silicon and a macOS 13 deployment target. Its app was ad-hoc signed and its
+installer unsigned, using a preview identifier separate from the registered
+release identity above.
 
 | Artifact | SHA-256 |
 | --- | --- |
@@ -180,14 +262,18 @@ GitHub hosting-IP disclosures. The website contains no app source or account dat
 3. Validate live provider state transitions, same-chat handoff, Review/Restore,
    revoked/regranted sources, real quota limitations and bounded restart/error
    behavior on the exact release artifact. Historical tests are not substitutes.
-4. Prove use of the existing Apple application/installer signing identities
-   through the owner’s Keychain handoff, verify the final registered identifier
-   and any required profile/capability route, and inspect final package chains.
-   Identity visibility and an old notarized download do not prove this step.
-5. Enter the verified support/privacy URLs, free listing price and final metadata
-   in App Store Connect. Complete screenshots, privacy answers, provider
-   authorization/branding and App Review instructions, then authorized Apple
-   upload/processing and release-specific receipt/distribution checks.
+4. Complete the final identity’s installed/delivery checks. App ID registration,
+   application/installer signing and independent exact-package verification are
+   complete. Profile-free packaging is not a TestFlight configuration; fresh
+   online revocation, Apple processing and Apple-resigned delivery remain separate.
+5. Preserve verified draft version 0.2.5, support URL, manual release, subtitle
+   and category. Complete remaining listing fields, privacy URL/answers, free
+   price, screenshots, SDK/export answers, provider/branding review and review
+   instructions. Resolve the current Missing Compliance status through an
+   accurate owner encryption determination, retain SDK/privacy/export gates and
+   complete distribution checks. Transporter delivery/build attachment are done.
+   Bundled third-party crypto means local monitoring does not establish a
+   no-crypto or Apple-OS-only classification. The owner’s determination is pending.
 
 No release gate is waived by source-test counts, a dummy native parent,
 structural signatures, a listed certificate or a successful website repository.
@@ -197,7 +283,9 @@ structural signatures, a listed certificate or a successful website repository.
 The build 25 clean source and six-asset local/private backups were independently
 read back, including all source bytes and the restored app tree/signatures.
 Those immutable backups predate the later provider/recovery phases and website
-update. Their evidence remains private. This public source snapshot updates only
-nonruntime documentation; it contains no private repository ancestry, account
-files, guest files, credentials, keys, raw logs or validation screenshots.
+update. Their evidence remains private. The preserved public build 25 snapshot
+updated only nonruntime documentation from the reviewed build 25 source; that
+scope does not describe later build 27 runtime changes. It contains no private
+repository ancestry, account files, guest files, credentials, keys, raw logs or
+validation screenshots.
 No open-source license has been selected; third-party notices remain intact.
