@@ -517,6 +517,8 @@ class Handler(BaseHTTPRequestHandler):
                   "/about/ko-fi.png": ("about/ko-fi.png", "image/png")}
         if self.monitor.store_profile:
             assets["/about/privacy/"] = ("about/privacy.html", "text/html; charset=utf-8")
+        for sound in ("soft-ding", "chime", "bell", "glass", "marimba", "arcade", "radar", "space-signal", "pop", "fart"):
+            assets["/sounds/" + sound + ".wav"] = ("sounds/" + sound + ".wav", "audio/wav")
         if path not in assets:
             return self.respond(404, {"error": "Page not found."})
         name, kind = assets[path]
@@ -818,9 +820,14 @@ def main():
                              or getattr(sys, "frozen", False) and os.environ.get("AGENT_BOARD_STORE_PROFILE") != "1"):
         parser.exit(2, "Sample mode requires the Store sandbox with account helpers disabled.\n")
     os.umask(0o077)
+    # Start fixed, local-only diagnostics before bookmark validation or the
+    # first protected read can wait for a macOS permission decision.
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    LOG.info("startup phase=prepare")
     try:
         access_token = read_access_token(args.access_token_file) if args.access_token_file else None
     except (OSError, ValueError, UnicodeError):
+        LOG.info("startup phase=access_file_failed")
         parser.exit(1, "The private display access file could not be read.\n")
     manifest_observation = {}
     source_grants = None
@@ -828,6 +835,7 @@ def main():
         # Do not accept a flag as authorization. Resolve the owner's private
         # transferable bookmarks in this helper before opening any provider file.
         from sandbox_sources import activate_source_bookmarks
+        LOG.info("startup phase=verify_source_grants")
         try:
             if not access_token or not args.parent_lifetime_stdin:
                 raise ValueError
@@ -839,8 +847,9 @@ def main():
                                                      expected_roots=roots, support=args.data_dir.parent, observation=manifest_observation,
                                                      require_unselected=args.sample_mode)
         except (OSError, ValueError, TypeError):
+            LOG.info("startup phase=source_grants_failed")
             parser.exit(1, "The sandbox source grants could not be verified. Reopen Setup and Permissions.\n")
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+        LOG.info("startup phase=source_grants_verified")
     monitor = None
     server = None
     workers = []
@@ -869,17 +878,22 @@ def main():
             threading.Thread(target=watch_native_parent, daemon=True, name="native-parent-lifetime").start()
         if stopping.is_set():
             return
+        LOG.info("startup phase=construct_readers")
         monitor = Monitor(args.data_dir, args.codex_root, args.claude_root, max(0.5, args.interval),
                           args.usage_enabled, args.projects_enabled, args.claude_desktop_root, args.sandbox,
                           source_grants=source_grants, store_profile=args.store_profile, sample_mode=args.sample_mode)
         if stopping.is_set():
             return
+        LOG.info("startup phase=initial_scan")
         monitor.scan()
+        LOG.info("startup phase=initial_scan_complete")
         if stopping.is_set():
             return
         try:
+            LOG.info("startup phase=bind_listener")
             server = BoardHTTPServer(("127.0.0.1", args.port), Handler)
         except OSError as exc:
+            LOG.info("startup phase=listener_failed")
             parser.exit(1, f"Could not start Agent Board on port {args.port}: {exc}\n")
         server.monitor = monitor
         server.access_token = access_token
@@ -893,6 +907,7 @@ def main():
             workers.append(worker)
         if stopping.is_set():
             return
+        LOG.info("startup phase=ready")
         LOG.info("Agent Board is listening at http://127.0.0.1:%s", server.server_port)
         server.serve_forever(poll_interval=0.5)
     finally:

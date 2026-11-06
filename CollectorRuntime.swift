@@ -15,14 +15,41 @@ final class LocalSessionDelegate: NSObject, URLSessionTaskDelegate {
 /// alive; quitting the app stops only the child started by this instance.
 final class CollectorRuntime {
     enum RuntimeError: LocalizedError {
-        case missing, unavailable, legacy(String)
+        case missing, unavailable, startupTimedOut, exitedDuringStartup, launchFailed, legacy(String)
         var errorDescription: String? {
             switch self {
             case .missing: return "The collector is missing from this copy of Agent Board. Download a complete copy of the app."
             case .unavailable: return "The local collector could not start. You can retry or open its local log. Your saved board has not been removed."
+            case .startupTimedOut: return "The local collector did not become ready within five minutes. Complete any macOS access request, then retry monitoring. Your saved board has not been removed."
+            case .exitedDuringStartup: return "The local collector stopped before it was ready. You can retry or open its local log. Your saved board has not been removed."
+            case .launchFailed: return "The local collector could not be prepared or launched. You can retry or open its local log. Your saved board has not been removed."
             case .legacy(let detail): return detail
             }
         }
+    }
+
+    struct StartupTiming {
+        let softAttempts: Int
+        let hardSeconds: TimeInterval
+        let retrySeconds: TimeInterval
+        let requestSeconds: TimeInterval
+        static let production = StartupTiming(softAttempts: 100, hardSeconds: 300,
+                                              retrySeconds: 0.25, requestSeconds: 1)
+    }
+
+    enum StartupPhase: String {
+        case restoringSources = "restore_sources"
+        case sourcesRestored = "sources_restored"
+        case preparing = "prepare"
+        case transferringSources = "transfer_sources"
+        case launching = "launch"
+        case checkingHealth = "health"
+        case waiting = "still_starting"
+        case ready = "ready"
+        case exited = "child_exited"
+        case timedOut = "hard_timeout"
+        case cancelled = "cancelled"
+        case failed = "failed"
     }
 
     private let liveSupport: URL
@@ -36,6 +63,14 @@ final class CollectorRuntime {
         configuration.connectionProxyDictionary = [:]
         return URLSession(configuration: configuration, delegate: LocalSessionDelegate(), delegateQueue: nil)
     }()
+    private let startupTiming: StartupTiming
+    private let healthSession: URLSession?
+    private let portProvider: (() -> Int)?
+    private var startupBegan: UInt64?
+    private var startupDeadline: DispatchWorkItem?
+    private var startupRetry: DispatchWorkItem?
+    private var healthRequestID: UUID?
+    private var reportedWaiting = false
     private let sourceRoots: (codex: URL, claude: URL)?
     let sandboxed: Bool
     let storeDistribution: Bool
@@ -56,6 +91,7 @@ final class CollectorRuntime {
     private var ready = false
     private var ownedGroup: pid_t?
     var unexpectedExit: (() -> Void)?
+    var startupWaiting: (() -> Void)?
     var hasBundle: Bool { FileManager.default.isExecutableFile(atPath: executable.path) }
     var logURL: URL { support.appendingPathComponent("data/collector.log") }
     var legacyPlist: URL {
@@ -65,7 +101,8 @@ final class CollectorRuntime {
 
     init(bundle: Bundle = .main, support: URL? = nil,
          sourceRoots: (codex: URL, claude: URL)? = nil, legacyPlist: URL? = nil, preferredPort: Int = 8769,
-         sandboxed: Bool? = nil) {
+         sandboxed: Bool? = nil, startupTiming: StartupTiming = .production,
+         healthSession: URLSession? = nil, portProvider: (() -> Int)? = nil) {
         self.sandboxed = sandboxed ?? (bundle.object(forInfoDictionaryKey: "AgentBoardSandboxed") as? Bool ?? false)
         self.storeDistribution = bundle.object(forInfoDictionaryKey: "AgentBoardStoreDistribution") as? Bool ?? false
         self.liveSupport = support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Agent Board")
@@ -73,6 +110,37 @@ final class CollectorRuntime {
         self.sourceRoots = sourceRoots
         legacyOverride = legacyPlist
         self.preferredPort = preferredPort
+        self.startupTiming = startupTiming
+        self.healthSession = healthSession
+        self.portProvider = portProvider
+        precondition(startupTiming.softAttempts > 0 && startupTiming.hardSeconds.isFinite
+                     && startupTiming.hardSeconds > 0 && startupTiming.retrySeconds.isFinite
+                     && startupTiming.retrySeconds > 0 && startupTiming.requestSeconds.isFinite
+                     && startupTiming.requestSeconds > 0)
+    }
+
+    // These fixed stages and bounded error codes are local diagnostics only.
+    // Never include source URLs, bookmark bytes, tokens, chat text or error text.
+    func recordStartupPhase(_ phase: StartupPhase, error: Error? = nil) {
+        let failure = error as NSError?
+        let knownDomains = [NSCocoaErrorDomain, NSPOSIXErrorDomain, NSOSStatusErrorDomain]
+        let domain = failure.map { knownDomains.contains($0.domain) ? $0.domain : "other" } ?? "none"
+        let line = "Agent Board startup phase=\(phase.rawValue) error_domain=\(domain) error_code=\(failure?.code ?? 0)\n"
+        if let logHandle {
+            if (try? logHandle.write(contentsOf: Data(line.utf8))) != nil { return }
+        } else {
+            let data = support.appendingPathComponent("data", isDirectory: true)
+            do {
+                if sampleMode { try validateSampleStorage() }
+                try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+                let handle = try Self.openCollectorLog(in: data)
+                defer { try? handle.close() }
+                try handle.write(contentsOf: Data(line.utf8))
+                return
+            } catch { /* A failed diagnostic must not change source access. */ }
+        }
+        NSLog("%@", line.trimmingCharacters(in: .newlines))
     }
 
     func setSampleMode(_ enabled: Bool) throws {
@@ -103,6 +171,68 @@ final class CollectorRuntime {
                   (attributes[.referenceCount] as? NSNumber)?.intValue == 1,
                   (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else { throw RuntimeError.unavailable }
         }
+    }
+
+    // Open only the app's own single-link regular log. Keep operations anchored
+    // to its directory descriptor, and never recursively remove rotation paths.
+    static func openCollectorLog(in directory: URL) throws -> FileHandle {
+        let flags = O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+        let parent = Darwin.open(directory.path, O_RDONLY | O_DIRECTORY | flags)
+        guard parent >= 0 else { throw RuntimeError.unavailable }
+        defer { Darwin.close(parent) }
+        var parentInfo = stat()
+        guard fstat(parent, &parentInfo) == 0,
+              (parentInfo.st_mode & S_IFMT) == S_IFDIR, parentInfo.st_uid == getuid() else {
+            throw RuntimeError.unavailable
+        }
+        func checked(_ descriptor: Int32, name: String) throws -> stat {
+            var info = stat()
+            var named = stat()
+            guard fstat(descriptor, &info) == 0,
+                  (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid(), info.st_nlink == 1,
+                  fstatat(parent, name, &named, AT_SYMLINK_NOFOLLOW) == 0,
+                  named.st_dev == info.st_dev, named.st_ino == info.st_ino,
+                  (named.st_mode & S_IFMT) == S_IFREG, named.st_uid == getuid(), named.st_nlink == 1 else {
+                throw RuntimeError.unavailable
+            }
+            return info
+        }
+        var descriptor = openat(parent, "collector.log", O_WRONLY | O_APPEND | O_CREAT | flags, 0o600)
+        guard descriptor >= 0 else { throw RuntimeError.unavailable }
+        defer { if descriptor >= 0 { Darwin.close(descriptor) } }
+        let info = try checked(descriptor, name: "collector.log")
+        guard fchmod(descriptor, 0o600) == 0 else { throw RuntimeError.unavailable }
+        if info.st_size > 2_000_000 {
+            var previousInfo = stat()
+            let existing = fstatat(parent, "collector.previous.log", &previousInfo, AT_SYMLINK_NOFOLLOW)
+            var previous: Int32 = -1
+            defer { if previous >= 0 { Darwin.close(previous) } }
+            if existing == 0 {
+                previous = openat(parent, "collector.previous.log", O_RDONLY | flags)
+                guard previous >= 0 else { throw RuntimeError.unavailable }
+                _ = try checked(previous, name: "collector.previous.log")
+            } else if errno != ENOENT {
+                throw RuntimeError.unavailable
+            }
+            // Recheck both names immediately before the single nonrecursive
+            // rename. Directories, links and special files are never removed.
+            _ = try checked(descriptor, name: "collector.log")
+            if previous >= 0 { _ = try checked(previous, name: "collector.previous.log") }
+            let renamed = existing == 0
+                ? renameat(parent, "collector.log", parent, "collector.previous.log")
+                : renameatx_np(parent, "collector.log", parent, "collector.previous.log", UInt32(RENAME_EXCL))
+            guard renamed == 0 else { throw RuntimeError.unavailable }
+            _ = try checked(descriptor, name: "collector.previous.log")
+            Darwin.close(descriptor)
+            descriptor = openat(parent, "collector.log", O_WRONLY | O_APPEND | O_CREAT | O_EXCL | flags, 0o600)
+            guard descriptor >= 0 else { throw RuntimeError.unavailable }
+            _ = try checked(descriptor, name: "collector.log")
+            guard fchmod(descriptor, 0o600) == 0 else { throw RuntimeError.unavailable }
+        }
+        _ = try checked(descriptor, name: "collector.log")
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        descriptor = -1
+        return handle
     }
 
     private func sandboxSources(data: URL) throws -> [String: URL] {
@@ -218,29 +348,23 @@ final class CollectorRuntime {
             completion(.failure(RuntimeError.legacy("Complete Setup and Permissions to replace the previous login service before starting the bundled collector.")))
             return
         }
+        let current = generation
+        startupBegan = DispatchTime.now().uptimeNanoseconds
+        scheduleStartupDeadline(generation: current, completion: completion)
+        recordStartupPhase(.preparing)
         do {
             if sampleMode { try validateSampleStorage() }
             let data = support.appendingPathComponent("data")
             try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: support.path)
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
-            if let attributes = try? FileManager.default.attributesOfItem(atPath: logURL.path),
-               (attributes[.size] as? NSNumber)?.intValue ?? 0 > 2_000_000 {
-                let previous = data.appendingPathComponent("collector.previous.log")
-                try? FileManager.default.removeItem(at: previous)
-                try? FileManager.default.moveItem(at: logURL, to: previous)
-            }
-            if !FileManager.default.fileExists(atPath: logURL.path) {
-                FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
-            }
-            logHandle = try FileHandle(forWritingTo: logURL)
-            try logHandle?.seekToEnd()
+            logHandle = try Self.openCollectorLog(in: data)
             let child = Process()
             let lifetime = Pipe()
             _ = fcntl(lifetime.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
             lifetimeWriter = lifetime.fileHandleForWriting
             child.standardInput = lifetime.fileHandleForReading
-            port = availablePort()
+            port = portProvider?() ?? availablePort()
             instanceID = UUID().uuidString
             child.executableURL = executable
             accessToken = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
@@ -257,6 +381,7 @@ final class CollectorRuntime {
             if sandboxed || !projectsEnabled { child.arguments?.append("--no-projects") }
             else { child.arguments?.append("--projects") }
             if sandboxed {
+                recordStartupPhase(.transferringSources)
                 let roots = try sandboxSources(data: data)
                 child.arguments?.append(contentsOf: ["--sandbox", "--codex-root", roots["codex"]!.path,
                                                     "--claude-root", roots["claude"]!.path,
@@ -282,51 +407,126 @@ final class CollectorRuntime {
             child.environment = environment
             child.standardOutput = logHandle
             child.standardError = logHandle
-            let current = generation
             child.terminationHandler = { [weak self] _ in
                 DispatchQueue.main.async {
-                    guard let self, current == self.generation, self.ready else { return }
-                    self.ready = false
-                    self.stop()
-                    self.unexpectedExit?()
+                    guard let self, current == self.generation else { return }
+                    if self.ready {
+                        self.stop()
+                        self.unexpectedExit?()
+                    } else {
+                        self.failStartup(.exitedDuringStartup, phase: .exited,
+                                         generation: current, completion: completion)
+                    }
                 }
             }
+            recordStartupPhase(.launching)
             try child.run()
             try? lifetime.fileHandleForReading.close()
             process = child
             attempts = 0
+            recordStartupPhase(.checkingHealth)
             checkHealth(generation: current, completion: completion)
-        } catch { stop(); completion(.failure(error)) }
+        } catch {
+            recordStartupPhase(.failed, error: error)
+            startupBegan = nil
+            stop()
+            completion(.failure(RuntimeError.launchFailed))
+        }
+    }
+
+    private var startupSecondsRemaining: TimeInterval {
+        guard let began = startupBegan else { return 0 }
+        let now = DispatchTime.now().uptimeNanoseconds
+        return startupTiming.hardSeconds - Double(now >= began ? now - began : 0) / 1_000_000_000
+    }
+
+    private func failStartup(_ error: RuntimeError, phase: StartupPhase, generation expected: UUID,
+                             completion: @escaping (Result<URL, Error>) -> Void) {
+        guard expected == generation, !ready else { return }
+        recordStartupPhase(phase)
+        startupBegan = nil
+        stop()
+        completion(.failure(error))
+    }
+
+    private func scheduleStartupDeadline(generation expected: UUID,
+                                         completion: @escaping (Result<URL, Error>) -> Void) {
+        startupDeadline?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, expected == self.generation, !self.ready else { return }
+            if self.startupSecondsRemaining > 0 {
+                self.scheduleStartupDeadline(generation: expected, completion: completion)
+                return
+            }
+            self.failStartup(.startupTimedOut, phase: .timedOut,
+                             generation: expected, completion: completion)
+        }
+        startupDeadline = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, startupSecondsRemaining), execute: work)
     }
 
     private func checkHealth(generation expected: UUID, completion: @escaping (Result<URL, Error>) -> Void) {
-        guard expected == generation else { return }
-        guard process?.isRunning == true, attempts < 100 else {
-            stop(); completion(.failure(RuntimeError.unavailable)); return
+        guard expected == generation, !ready, startupTask == nil else { return }
+        guard startupSecondsRemaining > 0 else {
+            failStartup(.startupTimedOut, phase: .timedOut, generation: expected, completion: completion)
+            return
+        }
+        guard process?.isRunning == true else {
+            failStartup(.exitedDuringStartup, phase: .exited, generation: expected, completion: completion)
+            return
+        }
+        if attempts >= startupTiming.softAttempts, !reportedWaiting {
+            reportedWaiting = true
+            recordStartupPhase(.waiting)
+            startupWaiting?()
+            // The callback may have cancelled or replaced this launch.
+            guard expected == generation else { return }
         }
         attempts += 1
         let base = URL(string: "http://127.0.0.1:\(port)/")!
         var request = URLRequest(url: base.appendingPathComponent("api/health"))
-        request.timeoutInterval = 1
+        request.timeoutInterval = min(startupTiming.requestSeconds, startupSecondsRemaining)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.setValue(accessToken, forHTTPHeaderField: "X-Agent-Board-Access")
-        startupTask = session.dataTask(with: request) { [weak self] data, response, _ in
+        let requestID = UUID()
+        healthRequestID = requestID
+        startupTask = (healthSession ?? session).dataTask(with: request) { [weak self] data, response, error in
             DispatchQueue.main.async {
-                guard let self, expected == self.generation else { return }
+                guard let self, expected == self.generation, requestID == self.healthRequestID else { return }
+                self.startupTask = nil
+                self.healthRequestID = nil
+                guard self.startupSecondsRemaining > 0 else {
+                    self.failStartup(.startupTimedOut, phase: .timedOut,
+                                     generation: expected, completion: completion)
+                    return
+                }
+                guard self.process?.isRunning == true else {
+                    self.failStartup(.exitedDuringStartup, phase: .exited,
+                                     generation: expected, completion: completion)
+                    return
+                }
                 let value = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                if (response as? HTTPURLResponse)?.statusCode == 200,
+                if error == nil, (response as? HTTPURLResponse)?.statusCode == 200,
                    value?["app"] as? String == "agent-board", value?["instance_id"] as? String == self.instanceID {
-                    self.startupTask = nil
                     self.ready = true
+                    self.startupBegan = nil
+                    self.startupDeadline?.cancel()
+                    self.startupDeadline = nil
+                    self.recordStartupPhase(.ready)
                     self.preferredPort = self.port
                     if let pid = self.process?.processIdentifier, getpgid(pid) == pid, pid != getpgrp() {
                         self.ownedGroup = pid
                     }
                     completion(.success(base))
                 } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                        self?.checkHealth(generation: expected, completion: completion)
+                    let retry = DispatchWorkItem { [weak self] in
+                        guard let self, expected == self.generation else { return }
+                        self.startupRetry = nil
+                        self.checkHealth(generation: expected, completion: completion)
                     }
+                    self.startupRetry = retry
+                    DispatchQueue.main.asyncAfter(deadline: .now() + min(self.startupTiming.retrySeconds,
+                                                                        self.startupSecondsRemaining), execute: retry)
                 }
             }
         }
@@ -334,8 +534,16 @@ final class CollectorRuntime {
     }
 
     func stop() {
+        if startupBegan != nil { recordStartupPhase(.cancelled) }
         generation = UUID()
         ready = false
+        startupBegan = nil
+        reportedWaiting = false
+        startupDeadline?.cancel()
+        startupDeadline = nil
+        startupRetry?.cancel()
+        startupRetry = nil
+        healthRequestID = nil
         startupTask?.cancel()
         startupTask = nil
         try? lifetimeWriter?.close()

@@ -13,16 +13,21 @@ import subprocess
 import sys
 import time
 import urllib.request
+import wave
 
 ROOT = Path(__file__).resolve().parent
 LABEL = "local.agent-board"
 SUPPORT = Path.home() / "Library" / "Application Support" / "Agent Board"
 INSTALLED_APP = Path("/Applications/Agent Board.app")
+ALERT_SOUND_IDS = ("soft-ding", "chime", "bell", "glass", "marimba", "arcade", "radar", "space-signal", "pop", "fart")
 RUNTIME_FILES = (
     "server.py", "board_store.py", "codex_source.py", "claude_source.py", "claude_project_source.py", "chat_links.py", "usage_source.py", "process_reader.py",
     "privacy_network.py", "sandbox_sources.py", "source_access.py", "local_quota.py",
     "static/index.html", "static/app.js", "static/style.css", "static/palettes.css",
     "static/themes.js", "static/effects.js", "static/effects.css",
+    "static/sounds/soft-ding.wav", "static/sounds/chime.wav", "static/sounds/bell.wav", "static/sounds/glass.wav",
+    "static/sounds/marimba.wav", "static/sounds/arcade.wav", "static/sounds/radar.wav", "static/sounds/space-signal.wav",
+    "static/sounds/pop.wav", "static/sounds/fart.wav",
     "static/icons/claude.svg", "static/icons/codex.svg",
     "static/designs/index.html", "static/designs/designs.css", "static/designs/designs.js",
     "static/colors/index.html", "static/colors/colors.css", "static/colors/colors.js",
@@ -34,6 +39,23 @@ RUNTIME_FILES = (
     "integrations/claude-local-usage/hooks/register.js",
     "integrations/claude-local-usage/README.md",
 )
+
+
+def copy_alert_sounds(resources):
+    """Stage fixed original PCM files in the main bundle for native notifications."""
+    for sound_id in ALERT_SOUND_IDS:
+        source = ROOT / "static/sounds" / (sound_id + ".wav")
+        if (source.is_symlink() or not source.is_file() or not source.resolve().is_relative_to(ROOT)
+                or any(parent.is_symlink() for parent in source.parents if parent.is_relative_to(ROOT))):
+            raise ValueError("An original alert sound is missing or substituted.")
+        with wave.open(str(source), "rb") as audio:
+            if (audio.getnchannels() != 1 or audio.getsampwidth() != 2 or audio.getframerate() != 22050
+                    or audio.getcomptype() != "NONE" or not 0 < audio.getnframes() / audio.getframerate() < 2
+                    or len(audio.readframes(audio.getnframes())) != audio.getnframes() * 2):
+                raise ValueError("Alert sounds must be short mono linear PCM WAV files.")
+        target = resources / ("agent-board-" + sound_id + ".wav")
+        shutil.copyfile(source, target)
+        target.chmod(0o644)
 
 
 def copy_license_notices(resources):
@@ -91,6 +113,7 @@ def build_app(signing_identity=None, *, sandboxed=False, build_root=None, config
     resources = contents / "Resources"
     resources.mkdir(exist_ok=True)
     copy_license_notices(resources)
+    copy_alert_sounds(resources)
     copy_privacy_manifest(resources)
     icon = ROOT / "assets/AgentBoard.icns"
     if icon.is_symlink() or not icon.is_file():

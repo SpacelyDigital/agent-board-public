@@ -5,12 +5,76 @@ Desktop’s Code tab. It shows which chats are working, waiting for your input o
 have a reply ready. Open returns to the original chat. Reviewed moves an item
 into dashboard history until new activity without changing the source chat.
 
-## Current engineering candidate
+## Shipping candidate, November 6, 2026
 
-The current source snapshot is **0.2.5 build 25**, an Apple-silicon App Sandbox
+The current locally signed candidate is **0.2.5 build 28**, using the registered
+App ID `com.spacelydigital.agentboard`, the profile-free unrestricted route and
+explicit `us-external` optional support. Apple Distribution application signing,
+Mac Installer Distribution signing, builder checks and independent exact-package
+verification passed. The signed package is 10,839,062 bytes. Exact hashes and
+scope are recorded in [ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json).
+
+All **427 combined source tests** passed with no failures, errors or skips.
+These source and static package checks do not establish installed behavior.
+The bounded actual native snapshot ends at `2026-11-06T09:46:10.517577+00:00`.
+On macOS 26, Installer reported success and the installed Info.plist view showed version
+0.2.5 build 28. Startup waited beyond the old timeout. After the owner allowed
+the macOS data prompt, the live board recovered without Retry or source
+reselection. The GUI does not establish child, token or generation identity.
+
+Ten recorded Preview-button actions produced no visible error. Fart with Sound
+on persisted through normal Quit and Finder reopen. Generic test notifications
+were visible after explicit sends with Sound on and Sound off. Physical sound,
+audible mute and the selected notification sound file were not verified.
+Actual build 28 provider transitions, login/restart and macOS 13 remain unverified.
+Build 28 has not undergone
+Transporter Verify or Deliver, Apple upload, TestFlight, notarization, App Review
+or release. Submission readiness remains false.
+
+Build 28 keeps the collector running after the original 100 health attempts and
+shows a waiting state while initial source validation and scanning finish. It
+uses a monotonic 300-second hard deadline, one child/token/generation and
+serialized authenticated health checks. The deadline is cooperative on the
+main queue and cannot forcibly interrupt synchronous native bookmark or file
+operations. Controlled source/native checks support this change; they are not
+packaged startup or macOS permission proof. See
+[remaining release gates](APP_STORE_READINESS.md).
+
+## Historical build 27 shipping checkpoint
+
+The following build 27 status was recorded on November 6, 2026 at 06:17 UTC.
+Its application/installer signing, builder checks and independent exact-package
+verification passed. On macOS 26, Installer reported success and normal launch
+reached initial Setup and the Codex read-only picker without a Gatekeeper
+override. That snapshot included no source grant or provider workflow.
+A later build 27 login/permission run timed out; allowing the late macOS consent
+and choosing Retry recovered monitoring. Its cause was not traced and remains a
+historical failure. These observations do not establish build 28 outcomes.
+
+The App Store Connect record exists as **Agent Board: AI Reply Alerts**.
+Draft version 0.2.5, the support URL, manual release, subtitle and Developer Tools
+category were saved and verified after reload. Historical build 27 Transporter
+Verify succeeded with warning 90889; Deliver completed, and build 27 was saved
+and reloaded as attached to version 0.2.5 with Missing Compliance. The encryption
+question was canceled unanswered. This history does not describe build 28 Apple
+verification, delivery or attachment. The profile-free route is not TestFlight
+validation, and no overall processing/compliance, App Review or release
+acceptance is claimed.
+
+On macOS 13, the separate ad-hoc preview 27 passed bounded no-source dashboard,
+local Privacy navigation, Light-mode Quit/reopen persistence, Sample-board
+review/return and closed-window reopen checks. Connected-provider, complete
+minimum-OS and signed-distribution acceptance remain open. See
+[packaging status](APP_STORE_PACKAGING.md). The following build 25 results
+remain historical evidence for that earlier preview.
+
+## Preserved build 25 checkpoint
+
+The preserved checkpoint is **0.2.5 build 25**, an Apple-silicon App Sandbox
 engineering preview. Its tested app was ad-hoc signed and its installer unsigned.
-It is **not ready for App Store submission**. macOS 13 is the deployment target;
-actual installation and launch on macOS 13 and Intel support remain unverified.
+At that checkpoint it was **not ready for App Store submission**. macOS 13 was
+the deployment target; its actual minimum-OS installation/launch had not been
+verified. Later preview 27 checks are scoped above; Intel support is not claimed.
 
 All **412 source tests** passed. Independent package inspection and **54 checks**
 under a derivative native sandbox parent are supporting evidence, separate from
@@ -38,11 +102,12 @@ test. About/Privacy/back links worked with Tab and Return. Final normal Quit and
 orderly test-system shutdown were visually observed. Complete keyboard,
 VoiceOver and process/network cleanup proof remain separate.
 
-This public snapshot comes from the reviewed clean build 25 source, with current
-nonruntime documentation. It does not publish the older private repository's
-history, user data or private validation evidence. Local and private source/
-artifact backups were independently verified and remain separate from release
-approval. See [APP_STORE_READINESS.md](APP_STORE_READINESS.md) for scope and gates.
+This source includes later shipping changes alongside the preserved build 25
+history. The separate public build 25 snapshot and its verified local/private
+backups remain unchanged. This checkpoint does not establish a final build 28
+source/artifact backup. Private repository ancestry, user data and raw validation evidence remain
+excluded from clean source distribution. See
+[APP_STORE_READINESS.md](APP_STORE_READINESS.md) for scope and release gates.
 
 ## Using the board
 
@@ -61,8 +126,11 @@ Names, placement, review state and appearance persist locally.
 Appearance provides five layouts with Ledger as the default, and fifteen themes
 with light and dark modes. View offers bounded text zoom, Keep on Top and Full
 Screen. Effects respect Reduce motion and pause when web content is hidden;
-background effects have no sound. Sound on plays a short chime for new Ready or
-Needs you events. Native notifications require separate opt-in. VoiceOver,
+background effects have no sound. Appearance offers ten original local alert
+sounds and a Preview button: soft-ding, chime, bell, glass, marimba, arcade,
+radar, space-signal, pop and fart. Sound on uses your selection for new Ready or
+Needs you events; Sound off mutes both web and native alerts. The selected sound
+persists locally. Native notifications require separate opt-in. VoiceOver,
 actual sound output and minimized/closed-window energy use remain release gates.
 
 Close the window to keep monitoring from the menu bar. Quit stops the owned
@@ -124,7 +192,9 @@ from the installed app. [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md) describ
 explicit local packaging inputs; the build tool does not install or upload.
 [DISTRIBUTION.md](DISTRIBUTION.md) and [APP_STORE_READINESS.md](APP_STORE_READINESS.md)
 separate source, fixture, native and actual-provider evidence. All prior private
-checkpoints remain preserved. No final Store upload or release has occurred.
+checkpoints remain preserved. Historical delivered build 27 is attached to
+version 0.2.5 with Missing Compliance. No build 28 Apple verification, upload,
+App Review or release result is established.
 
 Agent Board is independent of OpenAI and Anthropic. Their names belong to their
 owners; provider compatibility and distribution authorization remain release

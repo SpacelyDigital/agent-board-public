@@ -197,6 +197,9 @@ final class UsageWorkspace {
     func activateFileViewerSelecting(_ urls: [URL]) { selected = urls }
 }
 final class Runtime {
+    enum StartupPhase { case restoringSources, sourcesRestored }
+    var startupWaiting: (() -> Void)?
+    func recordStartupPhase(_ phase: StartupPhase) {}
     var storeDistribution = true
     var sampleMode = false
     var sandboxed = true

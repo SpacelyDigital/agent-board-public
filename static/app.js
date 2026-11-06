@@ -10,7 +10,7 @@
   const elements = Object.fromEntries([
     "connection", "connection-text", "summary", "monitor-message", "action-message", "conversation-updates", "loading", "empty", "sample-controls", "usage",
     "attention-section", "attention-list", "attention-count", "cooking-section", "cooking-list", "cooking-count",
-    "history", "history-count", "history-list", "sources", "last-sync", "sound-toggle", "fullscreen-toggle",
+    "history", "history-count", "history-list", "sources", "last-sync", "sound-toggle", "sound-select", "sound-preview", "fullscreen-toggle",
     "board-tab", "background-tab", "board-panel", "background-panel", "background-list", "background-empty", "background-count",
     "appearance-menu", "layout-select", "theme-select", "mode-select", "motion-toggle", "motion-option", "active-workspace", "layout-primary", "primary-heading", "primary-card", "layout-sections", "split-queue", "split-list",
     "rename-dialog", "rename-form", "rename-input", "rename-error", "rename-cancel", "rename-save"
@@ -44,9 +44,22 @@
   let selectedKey = null;
   let primaryKey = null;
   let audioContext = null;
+  const alertSounds = [
+    ["soft-ding", "Soft Ding"], ["chime", "Chime"], ["bell", "Bell"], ["glass", "Glass"],
+    ["marimba", "Marimba"], ["arcade", "Arcade"], ["radar", "Radar"],
+    ["space-signal", "Space Signal"], ["pop", "Pop"], ["fart", "Fart"]
+  ];
+  let soundID = "soft-ding";
+  const soundBuffers = new Map();
+  let activeSound = null;
+  let soundGeneration = 0;
   let soundEnabled = false;
   let samplePending = false;
   try { soundEnabled = localStorage.getItem("agent-board:sound") === "on"; } catch (_) { /* Storage can be disabled. */ }
+  try {
+    const savedSound = localStorage.getItem("agent-board:sound-id");
+    if (alertSounds.some(([id]) => id === savedSound)) soundID = savedSound;
+  } catch (_) { /* Optional preference. */ }
   try {
     const storedLayout = localStorage.getItem("agent-board:layout");
     selectedKey = localStorage.getItem("agent-board:selected");
@@ -481,8 +494,8 @@
     } finally { clearTimeout(timer); }
   }
 
-  async function unlockAttentionAudio() {
-    if (!soundEnabled) return;
+  async function unlockAttentionAudio(preview = false) {
+    if (!soundEnabled && !preview) return;
     try {
       audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
       if (audioContext.state !== "running") await audioContext.resume();
@@ -497,22 +510,32 @@
   document.addEventListener("pointerdown", unlockAudioAfterInteraction, { capture: true, passive: true });
   document.addEventListener("keydown", unlockAudioAfterInteraction, { capture: true });
 
-  function playAttentionSound() {
-    if (!soundEnabled) return;
+  async function playAttentionSound(preview = false) {
+    if (!soundEnabled && !preview) return;
+    if (!preview && window.webkit?.messageHandlers?.agentBoard
+        && (document.visibilityState !== "visible" || !document.hasFocus())) return;
+    const generation = ++soundGeneration;
+    const selected = soundID;
     try {
-      audioContext = audioContext || new (window.AudioContext || window.webkitAudioContext)();
+      await unlockAttentionAudio(preview);
       if (audioContext.state !== "running") return;
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.value = 740;
-      gain.gain.setValueAtTime(0, audioContext.currentTime);
-      gain.gain.linearRampToValueAtTime(.08, audioContext.currentTime + .015);
-      gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + .32);
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + .34);
+      if (!soundBuffers.has(selected)) {
+        soundBuffers.set(selected, fetch(`/sounds/${selected}.wav`, { credentials: "same-origin", cache: "force-cache" })
+          .then(response => { if (!response.ok) throw new Error("Local sound unavailable"); return response.arrayBuffer(); })
+          .then(bytes => audioContext.decodeAudioData(bytes))
+          .catch(error => { soundBuffers.delete(selected); throw error; }));
+      }
+      const buffer = await soundBuffers.get(selected);
+      if (generation !== soundGeneration || selected !== soundID || (!preview && !soundEnabled)) return;
+      if (!preview && window.webkit?.messageHandlers?.agentBoard
+          && (document.visibilityState !== "visible" || !document.hasFocus())) return;
+      if (activeSound) activeSound.stop();
+      const source = audioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext.destination);
+      source.onended = () => { source.disconnect(); if (activeSound === source) activeSound = null; };
+      activeSound = source;
+      source.start();
     } catch (_) { /* Audio is optional. */ }
   }
 
@@ -848,6 +871,8 @@
     elements["layout-select"].value = layout;
     elements["theme-select"].value = appearance.themeId;
     elements["mode-select"].value = appearance.mode;
+    elements["sound-select"].value = soundID;
+    elements["sound-preview"].setAttribute("aria-label", `Preview ${alertSounds.find(([id]) => id === soundID)[1]} alert sound`);
     elements["motion-option"].hidden = !themes.items.find(item => item.id === appearance.themeId)?.effect;
     elements["motion-toggle"].checked = appearance.motion && !reducedMotion.matches;
     elements["motion-toggle"].disabled = reducedMotion.matches;
@@ -859,6 +884,19 @@
     option.value = theme.id;
     elements["theme-select"].append(option);
   }
+  for (const [id, name] of alertSounds) {
+    const option = make("option", "", name);
+    option.value = id;
+    elements["sound-select"].append(option);
+  }
+  elements["sound-select"].addEventListener("change", () => {
+    soundID = alertSounds.some(([id]) => id === elements["sound-select"].value) ? elements["sound-select"].value : "soft-ding";
+    soundGeneration += 1;
+    if (activeSound) { activeSound.stop(); activeSound = null; }
+    try { localStorage.setItem("agent-board:sound-id", soundID); } catch (_) { /* Optional preference. */ }
+    renderAppearance();
+  });
+  elements["sound-preview"].addEventListener("click", () => { playAttentionSound(true); });
 
   elements["layout-select"].addEventListener("change", () => {
     layout = layouts.includes(elements["layout-select"].value) ? elements["layout-select"].value : "ledger";
@@ -889,6 +927,8 @@
 
   elements["sound-toggle"].addEventListener("click", async () => {
     soundEnabled = !soundEnabled;
+    soundGeneration += 1;
+    if (!soundEnabled && activeSound) { activeSound.stop(); activeSound = null; }
     try { localStorage.setItem("agent-board:sound", soundEnabled ? "on" : "off"); } catch (_) { /* Optional preference. */ }
     if (soundEnabled) await unlockAttentionAudio();
     renderSoundButton();

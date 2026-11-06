@@ -24,9 +24,12 @@ still needs final archive and Apple processing validation. [Manifest format](htt
 [macOS placement](https://developer.apple.com/documentation/bundleresources/adding-a-privacy-manifest-to-your-app-or-third-party-sdk)
 
 The Python runtime, its native libraries and every other bundled dependency
-remain the app developer's responsibility. No Apple-listed manifest SDK was
-identified in the current dependency inventory; that observation must be
-rechecked if dependencies change. System WebKit is not a bundled analytics SDK.
+remain the app developer's responsibility. Apple's current required-SDK list
+includes OpenSSL, which is statically included in this Python runtime. Before
+upload, verify the applicable SDK privacy-manifest and signature treatment for
+that embedded component in the final package. The app/helper manifests alone
+do not establish that Apple has accepted this packaging. Recheck the inventory
+if dependencies change. System WebKit is not a bundled analytics SDK.
 [Apple's SDK requirements](https://developer.apple.com/support/third-party-SDK-requirements/)
 
 Apple's App Store and macOS reporting are separate services controlled by Apple
@@ -35,10 +38,13 @@ diagnostics to developers. Agent Board has no such uploader of its own. The
 owner should not add an Apple analytics download or reporting integration to
 the app as a workaround. [Apple analytics privacy](https://developer.apple.com/app-store-connect/analytics/#data-privacy)
 
-The static privacy page is a draft awaiting owner hosting approval. App Store
-Connect requires a real publicly reachable privacy-policy URL. The support
-page has no form or request to send logs. The actual host's ordinary request
-logging and retention need a separate owner decision.
+The public [privacy policy](https://spacelydigital.github.io/agent-board-support/privacy.html)
+and [support page](https://spacelydigital.github.io/agent-board-support/) are live.
+Their reviewed bytes and actual browser navigation were verified on November 5,
+2026. Use these publicly reachable URLs in the final App Store Connect listing.
+GitHub Pages logs visitors' IP addresses for security, as the public policy
+discloses. The site has no analytics, scripts, forms, embedded payment widgets
+or log uploader. Agent Board does not load it automatically during monitoring.
 
 The owner-approved public support address is **Spacelydigital@gmail.com**.
 Its link opens an external mail app with no message body or attachments. Sending

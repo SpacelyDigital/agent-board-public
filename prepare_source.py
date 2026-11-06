@@ -19,6 +19,7 @@ TOP_LEVEL = (
     "build_support.py", "build_release.py", "build_store.py", "bootstrap_build.py", "requirements-build.txt", "prepare_source.py", "THIRD_PARTY.md",
     "privacy/PrivacyInfo.xcprivacy", "privacy/CollectorPrivacyInfo.xcprivacy",
     "assets/AgentBoard.icns", "tools/build_icon.swift", "tools/review_samples.py", "static/about/store.html",
+    "tools/generate_alert_sounds.py", "static/sounds/README.md",
     "store-listing/README.md", "store-listing/APP_STORE_METADATA.md", "store-listing/PRIVACY_ANSWERS.md",
     "store-listing/REVIEW_NOTES.md", "store-listing/REVIEW_SAMPLES.md", "store-listing/site/privacy.html", "store-listing/site/support.html", "store-listing/site/site.css",
 )
@@ -42,6 +43,9 @@ TESTS = (
     "test_store_packaging.py", "test_store_branding.py", "test_store_privacy.py", "test_sample_board.py", "test_codex_history_store.py", "test_codex_history_verification.py", "test_codex_sqlite_snapshot.py", "test_source_discovery.py",
     "test_local_quota.py", "test_local_quota_workflow.py", "local_quota_mod_smoke.mjs", "local_quota_ui_smoke.cjs", "source_revocation_ui_smoke.cjs", "test_review_samples.py",
     "focus_retention_ui_smoke.cjs", "theme_compatibility_ui_smoke.cjs",
+    "native_log_storage_smoke.py",
+    "native_startup_wait_smoke.py",
+    "test_alert_sounds.py", "native_alert_sounds_smoke.py", "alert_sounds_ui_smoke.cjs",
 )
 SENSITIVE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"

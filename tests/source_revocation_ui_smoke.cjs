@@ -40,7 +40,7 @@ async function main() {
     const target = path.resolve(root, relative);
     if (request.method !== 'GET' || !target.startsWith(root + path.sep) ||
         !fs.existsSync(target) || !fs.statSync(target).isFile()) return response.writeHead(404).end();
-    const types = {'.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml'};
+    const types = {'.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.wav': 'audio/wav'};
     response.writeHead(200, {'Content-Type': types[path.extname(target)] || 'application/octet-stream'});
     response.end(fs.readFileSync(target));
   });
@@ -65,11 +65,12 @@ async function main() {
       window.__agentBoardAccessToken = value;
       localStorage.setItem('agent-board:sound', 'on');
       window.fixtureSounds = 0;
-      window.AudioContext = class {
-        constructor() { this.state = 'running'; this.currentTime = 0; this.destination = {}; }
-        async resume() { this.state = 'running'; }
-        createOscillator() { return {frequency: {}, connect() {}, start() { window.fixtureSounds += 1; }, stop() {}}; }
-        createGain() { return {gain: {setValueAtTime() {}, linearRampToValueAtTime() {}, exponentialRampToValueAtTime() {}}, connect() {}}; }
+      const Context = window.AudioContext || window.webkitAudioContext;
+      const create = Context.prototype.createBufferSource;
+      Context.prototype.createBufferSource = function() {
+        const source = create.call(this), start = source.start;
+        source.start = function(...args) { window.fixtureSounds += 1; return start.apply(this,args); };
+        return source;
       };
     }, token);
     const page = await context.newPage();

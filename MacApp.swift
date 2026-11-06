@@ -84,6 +84,17 @@ func updateLoginPreference(enabled: Bool, service: AgentBoardLoginService,
     }
 }
 
+enum AgentBoardAlertSound {
+    static let ids = ["soft-ding", "chime", "bell", "glass", "marimba", "arcade", "radar", "space-signal", "pop", "fart"]
+
+    static func filename(preferences: [String: Any]) -> String? {
+        guard preferences["agent-board:sound"] as? String == "on" else { return nil }
+        let saved = preferences["agent-board:sound-id"] as? String ?? "soft-ding"
+        let selected = ids.contains(saved) ? saved : "soft-ding"
+        return "agent-board-" + selected + ".wav"
+    }
+}
+
 struct AttentionChat {
     let key: String
     let title: String
@@ -329,6 +340,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     var notificationsEnabled: Bool { defaults.bool(forKey: "notificationsEnabled") }
+    func attentionNotificationSound() -> UNNotificationSound? {
+        guard let name = AgentBoardAlertSound.filename(preferences: defaults.dictionary(forKey: displayPreferencesKey) ?? [:]) else { return nil }
+        guard Bundle.main.url(forResource: name, withExtension: nil) != nil else { return .default }
+        return UNNotificationSound(named: UNNotificationSoundName(rawValue: name))
+    }
     var ownedCollectorRunning: Bool { fixtureMode || runtime.process?.isRunning == true }
     var permissionAllowsNotifications: Bool { permission == .authorized || permission == .provisional }
     var boardIsVisibleAndActive: Bool {
@@ -613,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let content = UNMutableNotificationContent()
         content.title = "Agent Board"
         content.body = "Notifications are enabled for conversations that need your attention."
-        content.sound = .default
+        content.sound = attentionNotificationSound()
         content.userInfo = ["test": true]
         center.add(UNNotificationRequest(identifier: notificationPrefix + ".test", content: content, trigger: nil)) { [weak self] error in
             DispatchQueue.main.async { self?.lastDeliveryFailed = error != nil; self?.updateMenu() }
@@ -708,7 +724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let content = UNMutableNotificationContent()
         content.title = chat.title
         content.body = chat.status == "needs_you" ? "\(chat.provider) needs your approval or input." : "\(chat.provider) has a reply ready to review."
-        content.sound = .default
+        content.sound = attentionNotificationSound()
         content.categoryIdentifier = chat.canOpen ? "ATTENTION_OPEN" : "ATTENTION"
         content.userInfo = ["key": chat.key, "event_id": chat.eventID, "can_open": chat.canOpen]
         let digest = SHA256.hash(data: Data(chat.signature.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -1119,12 +1135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             loadAttentionLedger()
         }
         invalidateStateRequests()
-        if !runtime.sampleMode { restoreSourceAccess() }
+        startingCollector = true
+        if !runtime.sampleMode {
+            runtime.recordStartupPhase(.restoringSources)
+            restoreSourceAccess()
+            runtime.recordStartupPhase(.sourcesRestored)
+        }
         runtime.grantedSourceURLs = runtime.sampleMode ? [:] : sourceURLs
         sourceAccessChanged = false
         runtime.usageEnabled = !runtime.sandboxed && defaults.bool(forKey: "accountUsageEnabled")
         runtime.projectsEnabled = !runtime.sandboxed && defaults.bool(forKey: "cloudProjectsEnabled")
-        startingCollector = true
         csrfToken = nil
         collectorAvailable = false
         updateMenu()
@@ -1133,6 +1153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         collectorRetryButton = nil
         window.makeFirstResponder(webView)
         webView.loadHTMLString("<!doctype html><html><meta name='viewport' content='width=device-width'><body style='font:16px -apple-system;padding:48px;color:#777'><h1 style='font-size:24px'>Agent Board is starting.</h1><p>Your saved board will appear when the local collector is ready.</p></body></html>", baseURL: nil)
+        runtime.startupWaiting = { [weak self] in
+            guard let self, self.startingCollector else { return }
+            self.webView.loadHTMLString("<!doctype html><html><meta name='viewport' content='width=device-width'><body style='font:16px -apple-system;padding:48px;color:#777'><h1 style='font-size:24px'>Agent Board is still starting.</h1><p>Check for a macOS permission request and allow the folders you selected if you want monitoring to continue. The local collector is still waiting, and your saved board has not been removed.</p></body></html>", baseURL: nil)
+        }
         runtime.start { [weak self] result in
             guard let self else { return }
             self.startingCollector = false
@@ -1210,7 +1234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
           const [origin, token, saved, generation] = \(arguments);
           if (location.origin !== origin || (location.pathname !== '/' && location.pathname !== '/index.html')) return;
           Object.defineProperty(window, '__agentBoardAccessToken', { value: token, configurable: true });
-          const keys = ['theme-id', 'mode', 'motion', 'layout', 'sound', 'selected', 'palette', 'theme'].map(key => 'agent-board:' + key);
+          const keys = ['theme-id', 'mode', 'motion', 'layout', 'sound', 'sound-id', 'selected', 'palette', 'theme'].map(key => 'agent-board:' + key);
           const set = Storage.prototype.setItem;
           const remove = Storage.prototype.removeItem;
           const clear = Storage.prototype.clear;
@@ -1433,13 +1457,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         if let body = message.body as? [String: Any], body["kind"] as? String == "displayPreferences",
            body["generation"] as? String == stateGeneration.uuidString,
-           let values = body["values"] as? [String: String], values.count <= 8,
+           let values = body["values"] as? [String: String], values.count <= 9,
            let path = message.frameInfo.request.url?.path, path == "/" || path == "/index.html" {
             let allowed: [String: Set<String>] = [
                 "theme-id": Set(["terminal", "graphite", "paper", "amber", "arctic", "orchid", "moss", "rose", "matrix", "hearth", "aurora", "starfield", "aquarium", "lava", "rain"]),
                 "mode": Set(["light", "dark"]), "motion": Set(["true", "false"]),
                 "layout": Set(["ledger", "split", "columns", "focus", "instrument"]),
                 "sound": Set(["on", "off"]), "theme": Set(["light", "dark"]),
+                "sound-id": Set(AgentBoardAlertSound.ids),
                 "palette": Set(["terminal", "amber", "arctic", "orchid", "paper"])
             ]
             var valid: [String: String] = [:]

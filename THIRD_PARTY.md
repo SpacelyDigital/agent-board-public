@@ -9,6 +9,9 @@ These notices apply to the named third-party components. They do not grant a
 license to Agent Board’s own source code, name, artwork or provider logos.
 Provider names and logos are addressed separately in `static/icons/README.md`.
 
+The alert sounds are original offline synthesis for Agent Board, not third-party
+recordings. Their generator and format are documented in `static/sounds/README.md`.
+
 ## Bundled components
 
 The runtime uses CPython 3.12.16 from the

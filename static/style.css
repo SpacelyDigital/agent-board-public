@@ -290,6 +290,9 @@ html[data-provider-marks="off"] .usage-logo { display: none !important; -webkit-
 .appearance-options label { color: var(--muted); font-size: 12px; }
 .appearance-options select { width: 100%; min-width: 0; padding: 7px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); color: var(--ink); font: inherit; font-size: 12px; }
 .appearance-options select:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.appearance-sound { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.appearance-sound select { flex: 1; min-width: 0; }
+.appearance-sound button { flex-shrink: 0; }
 .appearance-motion { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; }
 .appearance-motion input { margin: 0; accent-color: var(--green); }
 .appearance-compare { grid-column: 2; justify-self: start; color: var(--muted); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }

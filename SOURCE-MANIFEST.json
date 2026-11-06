@@ -1,20 +1,7 @@
 {
-  "source_files": 163,
-  "publication": "Prepared public engineering snapshot",
-  "version": "0.2.5",
-  "build": "25",
-  "base_source_manifest_sha256": "ab53d9ffa2df71b710d30e1fe32127d875cdf156c2568d15f25ac4c0e46e7d66",
-  "current_status_docs": [
-    "APP_STORE_READINESS.md",
-    "DISTRIBUTION.md",
-    "ENGINEERING_CHECKPOINT.json",
-    "README.md",
-    "store-listing/APP_STORE_METADATA.md",
-    "store-listing/README.md",
-    "store-listing/REVIEW_NOTES.md"
-  ],
-  "runtime_build_inputs_unchanged": 85,
-  "automated_private_content_scan": "Independent source and packaged-artifact disclosure audit passed; seven new documents independently reviewed before publication",
+  "source_files": 180,
+  "automated_private_content_scan": "passed",
+  "publication": "not uploaded",
   "open_source_license": "not selected",
   "files": [
     {
@@ -25,32 +12,32 @@
     },
     {
       "path": "APP_STORE_PACKAGING.md",
-      "bytes": 10749,
-      "sha256": "cec0c9f40ed214ba0445c0c74f23f4351de816baa76de5530d0b4e425238a924",
+      "bytes": 19330,
+      "sha256": "774893b3c39a6c15b094f490e0349c262f52fa1ff426aebf12ddcab4e4ff2629",
       "mode": 420
     },
     {
       "path": "APP_STORE_READINESS.md",
-      "bytes": 12683,
-      "sha256": "e820579279fb9e8ba3271748366bf95306bf763352af7fffa2cb0dbe22931f2d",
+      "bytes": 23887,
+      "sha256": "5894237bd4acbed19a1df326701a8787ed91c42f0fbd412ddaef8e6b37e397ce",
       "mode": 420
     },
     {
       "path": "CollectorRuntime.swift",
-      "bytes": 20757,
-      "sha256": "2d94c2088c5bfab8741699d75707648c9a837e8734beb6f07edb391304c09c0c",
+      "bytes": 31910,
+      "sha256": "cbfe48a2bcfbc6095e371e7d2410049c0065127fa4670cc92737e70c4fc018ac",
       "mode": 420
     },
     {
       "path": "DISTRIBUTION.md",
-      "bytes": 7155,
-      "sha256": "24373c8882783564e1076fce1cc85985259127a75699ace4355b2c8aea3181e5",
+      "bytes": 10530,
+      "sha256": "363d7d1662a0eeca57ff33686c4ddfd3f2d7789d8b5712ee8cfbe2992f3c5e61",
       "mode": 420
     },
     {
       "path": "ENGINEERING_CHECKPOINT.json",
-      "bytes": 12051,
-      "sha256": "7fdb11dbd007e05cabeff351358c41886ee9150888b862debb387a3a2278ae26",
+      "bytes": 40177,
+      "sha256": "737e8b582c2cd4f2a40346ed9e60e864308767a148201d3fe50da5eb33e610b3",
       "mode": 420
     },
     {
@@ -61,8 +48,8 @@
     },
     {
       "path": "MacApp.swift",
-      "bytes": 80088,
-      "sha256": "e0a69eb0ae44219a547375bea422331370c5dc74fdbaa8fb2e2908b4feb28f69",
+      "bytes": 81834,
+      "sha256": "f51adec1afd00e8eb8821970c53fcf4ca4a9e92c8345f0af3dcf6e53023f6b0a",
       "mode": 420
     },
     {
@@ -73,8 +60,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 8103,
-      "sha256": "58f0a54410e1c0c1e50b6d993fc6b8c111afc2e3dfe17ba6d6c6a8bce804aa55",
+      "bytes": 12517,
+      "sha256": "10d1c07d8b51a7e8cd8d222079d6b753f0addc35995a165b540b83b02f60967a",
       "mode": 420
     },
     {
@@ -85,8 +72,8 @@
     },
     {
       "path": "THIRD_PARTY.md",
-      "bytes": 5536,
-      "sha256": "4d95b4fb3f89d4b7c4b3f63fc73c48fdb1198255ffdbaf91322a4e28676a5f74",
+      "bytes": 5702,
+      "sha256": "d48916240cf606c565fd63d0567c6c1a702ca03fe650f6cb5596d37c1672e3a3",
       "mode": 420
     },
     {
@@ -115,8 +102,8 @@
     },
     {
       "path": "build_store.py",
-      "bytes": 26546,
-      "sha256": "1603f51d8b0b8a70c99968b90708ab94f65438e52ea0e37e22c4e1d9a406583c",
+      "bytes": 29295,
+      "sha256": "dcfefbc8d3ec24a77050d0b7457c9fbe1b8c84df7ff4333befa5fe5dab77ae82",
       "mode": 420
     },
     {
@@ -175,8 +162,8 @@
     },
     {
       "path": "install.py",
-      "bytes": 14392,
-      "sha256": "ed9e805432292ca2af6a7b55fc7117e64c00b3272af6cf136f4a03bb19ce0387",
+      "bytes": 15942,
+      "sha256": "79dc9f147efa14c13a5d91229dffd2b72340b0fd50ec2414cb9af79c04bbc9e9",
       "mode": 420
     },
     {
@@ -409,8 +396,8 @@
     },
     {
       "path": "prepare_source.py",
-      "bytes": 5422,
-      "sha256": "d432711eae7a82b69532f4aba8c767fedab13b597d7736c3c0c9358fba973ea6",
+      "bytes": 5647,
+      "sha256": "f47b8b492e82f4473b87d0e4fddbfc8179a954b4e1015e3f254cd692ab9de667",
       "mode": 420
     },
     {
@@ -451,8 +438,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 50558,
-      "sha256": "3bfb648cac95ac213fbe3c5846da31a5f16e407aa579c907fbab8b39a54089df",
+      "bytes": 51481,
+      "sha256": "a4a8e98dd40de4f58f25ee76937e4cbceb77b68408eeab769f575607225b26b1",
       "mode": 420
     },
     {
@@ -499,8 +486,8 @@
     },
     {
       "path": "static/app.js",
-      "bytes": 49583,
-      "sha256": "cad2f1b31e5facec7c57d167c02cb3cc1261393eed36e3e25cec3257eaf1299c",
+      "bytes": 51892,
+      "sha256": "f7fab9d5e5b5c13eee7b379458be95341da6511b8c5677b97bd024d034763c38",
       "mode": 420
     },
     {
@@ -571,8 +558,8 @@
     },
     {
       "path": "static/index.html",
-      "bytes": 10021,
-      "sha256": "47be78c2890dc78a5587dcf9c0540d31285976c6fd5f8e99903c8326cc9e485c",
+      "bytes": 10289,
+      "sha256": "4749e83fef25b55309d4f3c8cf5df5e4c45610aa6da920afe75725341fe3855a",
       "mode": 420
     },
     {
@@ -582,9 +569,75 @@
       "mode": 420
     },
     {
+      "path": "static/sounds/README.md",
+      "bytes": 639,
+      "sha256": "19dea1096dc983f4901a57d3b70c873dccb941eedc75bc415b7e48118ec4b8ff",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/arcade.wav",
+      "bytes": 19888,
+      "sha256": "293ff1cca2e23c2f2052eaa024d74ea1f4aec1f6e248e77d58457681deb17736",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/bell.wav",
+      "bytes": 48554,
+      "sha256": "0d230dd56aa7a19f09141324433bc1caecc3583c23c558ecd8f5716592548ca5",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/chime.wav",
+      "bytes": 39734,
+      "sha256": "2e5a7b3bf7b0e135157f42d75f1a928b75bb234fd1ec0df09ed0d37be1f38a13",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/fart.wav",
+      "bytes": 33120,
+      "sha256": "e04957dc18a062e0f52fd504f9dba0d2d2b42b0d2cdb6cbeae1c8af06bc1e3ad",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/glass.wav",
+      "bytes": 28708,
+      "sha256": "c20dde76b5a742fb689be0db71823695663694488570b8e83ff1e49d63055d0f",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/marimba.wav",
+      "bytes": 26504,
+      "sha256": "3aa47308e08faa23f637613d4c27231a61f0f4e079793370caf11ef9ca0a4c4f",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/pop.wav",
+      "bytes": 7100,
+      "sha256": "9cb86875e3a10d78b9ddb05aa37765344991e13a496fecfa61b26264bb4a6428",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/radar.wav",
+      "bytes": 30914,
+      "sha256": "32233169b97a41750566dd92e81b570154b97eff508af94c721c75fd0f89d389",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/soft-ding.wav",
+      "bytes": 15038,
+      "sha256": "60bb5e7ab5195cbaadfcf098b118f35abde242d2f3c0ce76def29de7baee60a4",
+      "mode": 420
+    },
+    {
+      "path": "static/sounds/space-signal.wav",
+      "bytes": 37528,
+      "sha256": "e87bff20d28245e2a3474221c24ba14217c37ab85f86f8aac4b590dcc9bc2bb4",
+      "mode": 420
+    },
+    {
       "path": "static/style.css",
-      "bytes": 37729,
-      "sha256": "1d850a2a86a2d02062f7687f5d137d80afd4318dc3ac6ddf9efebedbae0e55a6",
+      "bytes": 37908,
+      "sha256": "189d0a0cf952353206d640473b7a2db80afc92a148c86331139852b1d367fda8",
       "mode": 420
     },
     {
@@ -595,26 +648,26 @@
     },
     {
       "path": "store-listing/APP_STORE_METADATA.md",
-      "bytes": 4758,
-      "sha256": "accfab81f790f1492012819227d85d106a4ec8a22b32f2b69d3aa46c75f0f02d",
+      "bytes": 7916,
+      "sha256": "f95d0a0086cb2c8bc6cc6d897522cf970ed5d403c90b820ac58f64ee06d57144",
       "mode": 420
     },
     {
       "path": "store-listing/PRIVACY_ANSWERS.md",
-      "bytes": 4642,
-      "sha256": "4870a89874da20760586d9485278dc7571dfc1bf5d9a5f3a8ab98c5478ddb1b8",
+      "bytes": 5162,
+      "sha256": "a61c31c7d7b92e3fa9f250124d1ad92f5b7334e34af159a6dfd5152b2ca06f0d",
       "mode": 420
     },
     {
       "path": "store-listing/README.md",
-      "bytes": 2543,
-      "sha256": "cf1a1e5eee4c5b92065cde7f1f3041d683cbc96efd533215066b8852db5a4124",
+      "bytes": 5474,
+      "sha256": "305064cfb7d5cd2d8ca54f9cf28437bd596ff1649889522f244bf74057f1d60c",
       "mode": 420
     },
     {
       "path": "store-listing/REVIEW_NOTES.md",
-      "bytes": 9398,
-      "sha256": "66c54a9b28acb4b88048658f3b035dee702ea5771c441fa9aa1c24ef0bae4803",
+      "bytes": 14741,
+      "sha256": "6794ee2355f00490ca4c362f87b1f7af1b7ae1f6d5572730e30025ac3c254e3d",
       "mode": 420
     },
     {
@@ -648,6 +701,12 @@
       "mode": 420
     },
     {
+      "path": "tests/alert_sounds_ui_smoke.cjs",
+      "bytes": 9965,
+      "sha256": "9186611f8154d84f07b2ee0378d42a61ddec20caedaa38adb1f4a165d814065b",
+      "mode": 420
+    },
+    {
       "path": "tests/build_native_ui_fixture.py",
       "bytes": 5109,
       "sha256": "389f1690ba78b463addf2738b57314b63d25d4bc35ce8552a531195ea717bef4",
@@ -678,6 +737,12 @@
       "mode": 420
     },
     {
+      "path": "tests/native_alert_sounds_smoke.py",
+      "bytes": 3277,
+      "sha256": "1d2dc6d7a0b2d65538baa0d140acb84d51b49c47cb7f2cdce83e4ae282f8cd0d",
+      "mode": 420
+    },
+    {
       "path": "tests/native_chat_link_smoke.py",
       "bytes": 2939,
       "sha256": "b7cfa133a8ed96c0349d2bf629beab07a8af5f0b141869c833abfb48e0a51b3b",
@@ -687,6 +752,12 @@
       "path": "tests/native_history_notification_smoke.py",
       "bytes": 7145,
       "sha256": "c7fa885c6d071e3179f427012a28f62a96b3ecec5106e089292c28d3148ff28c",
+      "mode": 420
+    },
+    {
+      "path": "tests/native_log_storage_smoke.py",
+      "bytes": 15502,
+      "sha256": "4f8a2672a85b268c6da2a6766b358749be035810c90f9d7cf606d30ea262fd8b",
       "mode": 420
     },
     {
@@ -721,8 +792,8 @@
     },
     {
       "path": "tests/native_sample_login_smoke.py",
-      "bytes": 24722,
-      "sha256": "0219fc6a27bf750916892d2eae1cb6f72ff32ec707448661ed6d7c15a2fc968e",
+      "bytes": 24879,
+      "sha256": "2cec3697edf54e9e7b31212ee59ea1c63506e3214056d37801986fc5d8e601f3",
       "mode": 420
     },
     {
@@ -735,6 +806,12 @@
       "path": "tests/native_sandbox_smoke.py",
       "bytes": 6663,
       "sha256": "295d16290f05ea59774e2b7766d9aab51b66ab65b0dbbc8c1af50d4db7dbc73d",
+      "mode": 420
+    },
+    {
+      "path": "tests/native_startup_wait_smoke.py",
+      "bytes": 24216,
+      "sha256": "e8c94b5869284408bcdb4b43328d944ed625309d5f677871e49d0947ece23d41",
       "mode": 420
     },
     {
@@ -775,8 +852,8 @@
     },
     {
       "path": "tests/source_revocation_ui_smoke.cjs",
-      "bytes": 10476,
-      "sha256": "53a53ad0697a566b170150908e56dd23159aa6f94b88edfcec0b846329ad638a",
+      "bytes": 10433,
+      "sha256": "35d90644c86d2ff2e0667e2b2e0d0386684cf5798ad5109824a8987335e4cd6e",
       "mode": 420
     },
     {
@@ -801,6 +878,12 @@
       "path": "tests/test_adapter_redteam.py",
       "bytes": 14188,
       "sha256": "d45fba7d9c10f8b152b0a4a7e74dbddce1530d6dff15f2166e3d2e75c7f4d928",
+      "mode": 420
+    },
+    {
+      "path": "tests/test_alert_sounds.py",
+      "bytes": 5863,
+      "sha256": "c155dbc8c34b4e6b62c5d31e5992a6463f24f735dca201c7c0f99d42e20d918a",
       "mode": 420
     },
     {
@@ -829,8 +912,8 @@
     },
     {
       "path": "tests/test_claude_project.py",
-      "bytes": 30153,
-      "sha256": "50fbe7fdbec6c724b8b922ea3164cb4748e6cf361853bc8568c9cccf071d29b9",
+      "bytes": 30133,
+      "sha256": "490b99835565d9d7be7acbeea4f1a9f1e262e4f03e59968214ab953e6e3c4595",
       "mode": 420
     },
     {
@@ -943,8 +1026,8 @@
     },
     {
       "path": "tests/test_store_packaging.py",
-      "bytes": 25112,
-      "sha256": "b399540f8a34e7e79eded231674f94c322c13695efd390e95d3201e7207f384f",
+      "bytes": 37749,
+      "sha256": "21c36c5f3bda73cc4532d93d5636e6ed348e00954d5ba160e6b22218e2bbe6b8",
       "mode": 420
     },
     {
@@ -981,6 +1064,12 @@
       "path": "tools/build_icon.swift",
       "bytes": 2438,
       "sha256": "feb2e4ea11147981f1db032efe87c113f421e456984022db798b61a06944158c",
+      "mode": 420
+    },
+    {
+      "path": "tools/generate_alert_sounds.py",
+      "bytes": 3590,
+      "sha256": "f0699d6313d9e6008372b03fb241510e421a4db6558da9818cbfc838bf5196fd",
       "mode": 420
     },
     {
