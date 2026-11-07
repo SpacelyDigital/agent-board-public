@@ -10,9 +10,8 @@
     {id: "studio", title: "Studio booking flow", provider: "Claude", project: "Spacely Digital", status: "cooking", label: "Cooking", waiting: "7 minutes", compact: "7m", activity: "Started 7 minutes ago.", preview: "Reviewing the booking form and confirmation screen.", time: "12:54 AM"}
   ];
   const usage = [
-    {provider: "Claude", window: "5 hour", remaining: 86, reset: "3h 12m"},
-    {provider: "Claude", window: "Weekly", remaining: 93, reset: "6d 11h"},
-    {provider: "Codex", window: "Weekly", remaining: 24, reset: "5d 9h"}
+    {provider: "Claude", remaining: 93, reset: "6d 11h", credits: "$25.00"},
+    {provider: "Codex", remaining: 24, reset: "5d 9h", credits: "240"}
   ];
   const stage = document.querySelector("#design-stage");
   let selectedChat = chats[0].id;
@@ -26,7 +25,7 @@
   const tabs = () => `<div class="board-tabs" aria-label="Preview conversation tabs"><button class="selected" type="button" ${disabled}>Board <span>4</span></button><button type="button" ${disabled}>Background <span>8</span></button></div>`;
   const connection = () => '<span class="connection"><i aria-hidden="true"></i>Connected locally</span>';
   const controls = () => `<div class="board-controls">${button("Light")}${button("Notifications on")}</div>`;
-  const usageWindows = (className = "") => `<section class="usage ${className}" aria-label="Example remaining usage">${usage.map(item => `<div class="usage-item"><div class="usage-name"><strong>${item.provider}</strong><span>${item.window}</span></div><div class="usage-amount"><strong>${item.remaining}<span>%</span></strong><span>remaining</span></div><div class="usage-meter" aria-hidden="true"><span class="meter-${item.remaining}"></span></div><p>Resets in ${item.reset}</p></div>`).join("")}</section>`;
+  const usageWindows = (className = "") => `<section class="usage ${className}" aria-label="Example remaining usage">${usage.map(item => `<div class="usage-item"><div class="usage-name"><strong>${item.provider}</strong><span>Weekly</span></div><div class="usage-amount"><strong>${item.remaining}<span>%</span></strong><span>remaining</span></div><div class="usage-meter" aria-hidden="true"><span class="meter-${item.remaining}"></span></div><p>Resets in ${item.reset}<br>Credits available: ${item.credits}</p></div>`).join("")}</section>`;
   const footer = () => '<footer class="board-footer"><div><span><i aria-hidden="true"></i>Codex</span><span><i aria-hidden="true"></i>Claude</span></div><span>Updated just now</span></footer>';
   const counts = () => '<div class="counts"><span><b>2</b> waiting for you</span><span><b>2</b> cooking</span></div>';
   const history = () => `<div class="reviewed-row"><span>Reviewed <span>12</span></span><span aria-hidden="true">⌄</span></div>`;

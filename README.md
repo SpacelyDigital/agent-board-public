@@ -5,9 +5,35 @@ Desktop’s Code tab. It shows which chats are working, waiting for your input o
 have a reply ready. Open returns to the original chat. Reviewed moves an item
 into dashboard history until new activity without changing the source chat.
 
-## Shipping candidate, November 6, 2026
+## Build 31 local Mac checkpoint, November 7, 2026
 
-The current locally signed candidate is **0.2.5 build 28**, using the registered
+This checkpoint captures Agent Board 0.2.5 build 31 for Apple silicon. It uses
+SF Pro and an icon toolbar, and includes the owner-provided Fart recording.
+The usage panel shows weekly quota and reset times, plus a separate credit row
+for each provider. Codex shows an explicit balance when reported. Claude’s
+existing usage connection supplies weekly quota, and the direct Mac build
+links to Claude Usage for the prepaid balance.
+
+The local app opened and the Codex balance and Claude balance link appeared
+in the installed dashboard. The usage and audio browser checks and 78 focused
+source tests passed. This is a local direct build checkpoint. The dated Apple
+submission and test records below describe their respective historical builds.
+
+## Historical build 29 audio correction, November 6, 2026
+
+Build 29 uses the recording provided by the app owner for Fart. The complete
+0.31347-second clip was converted to metadata-free PCM with a constant volume
+adjustment. The other nine sounds, ten-choice picker, permissions and provider
+code are unchanged. The original compressed file is outside this source and
+app bundle. The generator preserves the included recording.
+
+This is a build 29 input snapshot. The dated build 28 records below and in the
+release documents remain historical evidence; they establish no build 29
+installation, Apple processing or submission readiness.
+
+## Historical build 28 checkpoint, November 6, 2026
+
+The locally signed candidate at this checkpoint was **0.2.5 build 28**, using the registered
 App ID `com.spacelydigital.agentboard`, the profile-free unrestricted route and
 explicit `us-external` optional support. Apple Distribution application signing,
 Mac Installer Distribution signing, builder checks and independent exact-package

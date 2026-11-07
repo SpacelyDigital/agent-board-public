@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Generate Agent Board's original short PCM alerts offline with the standard library."""
+"""Generate nine PCM alerts offline, preserving the supplied Fart recording."""
 
 import io
 import math
 from pathlib import Path
-import random
 import struct
 import wave
 
@@ -19,8 +18,9 @@ SOUNDS = (
     ("radar", "Radar", .70),
     ("space-signal", "Space Signal", .85),
     ("pop", "Pop", .16),
-    ("fart", "Fart", .75),
+    ("fart", "Fart", 6912 / SAMPLE_RATE),
 )
+SYNTHESIZED_SOUNDS = tuple(sound for sound in SOUNDS if sound[0] != "fart")
 
 
 def tone(t, frequency, decay, onset=0):
@@ -29,9 +29,10 @@ def tone(t, frequency, decay, onset=0):
 
 
 def make_sound(sound_id):
-    duration = next(length for key, _, length in SOUNDS if key == sound_id)
-    rng = random.Random(0xAB27)
-    noise = phase = 0
+    duration = next((length for key, _, length in SYNTHESIZED_SOUNDS if key == sound_id), None)
+    if duration is None:
+        raise ValueError("Only the nine synthesized alert sounds can be generated.")
+    phase = 0
     values = []
     for index in range(round(duration * SAMPLE_RATE)):
         t = index / SAMPLE_RATE
@@ -60,11 +61,6 @@ def make_sound(sound_id):
         elif sound_id == "pop":
             phase += math.tau * (90 + 700 * math.exp(-40 * t)) / SAMPLE_RATE
             value = math.sin(phase) * math.exp(-32 * t)
-        else:
-            phase += math.tau * (48 + 48 * math.exp(-4 * t) + 8 * math.sin(math.tau * 23 * t)) / SAMPLE_RATE
-            noise = .87 * noise + .13 * rng.uniform(-1, 1)
-            buzz = math.sin(phase) + .45 * math.sin(2 * phase) + .22 * math.sin(3 * phase)
-            value = (buzz * (.65 + .35 * math.sin(math.tau * 31 * t)) + .65 * noise) * math.exp(-2.6 * t)
         edge = min(1, t / .003, (duration - t) / .015)
         values.append(value * max(0, edge))
     scale = 1 if sound_id == "soft-ding" else .14 / max(abs(value) for value in values)
@@ -79,7 +75,7 @@ def make_sound(sound_id):
 def main():
     destination = Path(__file__).resolve().parents[1] / "static/sounds"
     destination.mkdir(parents=True, exist_ok=True)
-    for sound_id, _, _ in SOUNDS:
+    for sound_id, _, _ in SYNTHESIZED_SOUNDS:
         (destination / (sound_id + ".wav")).write_bytes(make_sound(sound_id))
 
 

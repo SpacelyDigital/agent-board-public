@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime
+from decimal import Decimal
 import hashlib
 import hmac
 import json
 import math
 import os
 from pathlib import Path
+import re
 import stat
 from typing import Any
 
@@ -27,6 +29,8 @@ STALE_SECONDS = 120
 _EARLIEST = 946684800  # 2000-01-01 UTC
 _LATEST = 4102444800  # 2100-01-01 UTC
 _MAX_RESET_DISTANCE = 8 * 86400
+_CODEX_CREDIT_DECIMAL = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+_MAX_SAFE_JSON_INTEGER = 2**53 - 1
 
 
 def _number(value: Any) -> float | None:
@@ -67,6 +71,31 @@ def _reading(provider: str, windows: list[dict[str, Any]], observed: float, now:
             "stale": stale, "error": error, "windows": windows, "loading": False}
 
 
+def parse_codex_credits(raw: Any, *, has_credits_key: str, observed_at: float | None = None) -> dict[str, Any] | None:
+    """Return an explicit finite workspace credit balance, not earned resets.
+
+    The Codex protocol sends balances as decimal strings. Export only numbers
+    that retain the reported value through the dashboard's JSON number format.
+    Neither boolean availability flags nor quota percentages imply a balance.
+    """
+    if (not isinstance(raw, dict) or type(raw.get(has_credits_key)) is not bool
+            or raw.get("unlimited") is not False):
+        return None
+    balance = raw.get("balance")
+    if not isinstance(balance, str) or len(balance) > 64 or not _CODEX_CREDIT_DECIMAL.fullmatch(balance):
+        return None
+    exact = Decimal(balance)
+    if exact.copy_abs() > _MAX_SAFE_JSON_INTEGER:
+        return None
+    amount = int(exact) if exact == exact.to_integral_value() else float(exact)
+    if Decimal(str(amount)) != exact:
+        return None
+    credits = {"amount": amount, "unit": "credits"}
+    if observed_at is not None:
+        credits["observed_at"] = observed_at
+    return credits
+
+
 def parse_codex_observation(rate_limits: Any, observed_at: Any, *, now: float) -> dict[str, Any] | None:
     """Read a verified local token_count snapshot, never an authenticated API.
 
@@ -91,9 +120,19 @@ def parse_codex_observation(rate_limits: Any, observed_at: Any, *, now: float) -
         value = {"id": "weekly", "label": "Weekly", "remaining_percent": round(100 - used, 2),
                  "reset_at": reset}
         if windows and windows[0] != value:
-            return None
+            windows = []
+            break
         windows = [value]
-    return _reading("codex", windows, observed, current, "local_record") if windows else None
+    credits = parse_codex_credits(rate_limits.get("credits"), has_credits_key="has_credits", observed_at=observed)
+    if not windows and credits is None:
+        return None
+    reading = _reading("codex", windows, observed, current, "local_record")
+    if credits is not None:
+        reading["credits"] = credits
+        reading["available"] = True
+        if not windows:
+            reading["error"] = "The local session reading has not been updated recently." if reading["stale"] else None
+    return reading
 
 
 def _unique_object(pairs):
@@ -228,6 +267,7 @@ class ClaudeLocalQuota:
                 interrupted = True
                 reading = None
             if reading is not None:
+                reading["windows"] = [window for window in reading["windows"] if window["id"] == "weekly"]
                 candidates.append(reading)
         if candidates:
             newest = max(candidates, key=lambda reading: reading["updated_at"])

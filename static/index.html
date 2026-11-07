@@ -24,8 +24,16 @@
           <button id="background-tab" class="board-tab" type="button" role="tab" aria-selected="false" aria-controls="background-panel" tabindex="-1">Background <span id="background-count" class="tab-count" hidden></span></button>
         </div>
         <div class="toolbar">
+          <button id="settings-toggle" class="quiet-button toolbar-icon" type="button" aria-label="Settings" title="Settings" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3h4l.6 2.7 1.7 1 2.7-.9 2 3.4-2.1 1.9v1.8l2.1 1.9-2 3.4-2.7-.9-1.7 1L14 21h-4l-.6-2.7-1.7-1-2.7.9-2-3.4 2.1-1.9v-1.8L3 9.2l2-3.4 2.7.9 1.7-1z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button id="sound-toggle" class="quiet-button toolbar-icon" type="button" aria-label="Sound" aria-pressed="false" title="Unmute sound">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9z"/><path class="sound-waves" d="M16 9a4 4 0 0 1 0 6m2.5-8.5a7.5 7.5 0 0 1 0 11"/><path class="sound-muted" d="m16 9 5 6m0-6-5 6"/></svg>
+          </button>
           <details id="appearance-menu" class="appearance-menu">
-            <summary class="quiet-button">Appearance</summary>
+            <summary class="quiet-button toolbar-icon" aria-label="Appearance" title="Appearance">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.7"/></svg>
+            </summary>
             <div class="appearance-options">
               <label for="layout-select">Layout</label>
               <select id="layout-select">
@@ -51,8 +59,9 @@
               <a class="appearance-compare" href="/colors/">Preview themes</a>
             </div>
           </details>
-          <button id="sound-toggle" class="quiet-button" type="button" aria-pressed="false" title="Play a sound when an agent needs your attention">Sound off</button>
-          <button id="fullscreen-toggle" class="quiet-button" type="button">Full screen</button>
+          <button id="fullscreen-toggle" class="quiet-button toolbar-icon" type="button" aria-label="Full screen" title="Full screen">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fullscreen-enter" d="M14 4h6v6m0-6-7 7M10 20H4v-6m0 6 7-7"/><path class="fullscreen-exit" d="M20 4l-7 7m0-6v6h6M4 20l7-7m0 6v-6H5"/></svg>
+          </button>
         </div>
       </header>
 
@@ -70,13 +79,13 @@
           <section class="usage-provider" data-provider="claude" aria-labelledby="usage-claude-heading">
             <h2 id="usage-claude-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-claude" aria-hidden="true"></span>Claude</h2>
             <div class="usage-windows">
-              <div id="usage-claude-five_hour" class="usage-window" aria-label="Claude five-hour usage">
-                <div class="usage-top"><span class="usage-label">5 hour</span><span class="usage-value">Loading</span></div>
-                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
-              </div>
               <div id="usage-claude-weekly" class="usage-window" aria-label="Claude weekly usage">
                 <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
                 <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+              </div>
+              <div id="usage-claude-credits" class="usage-window usage-credits" aria-label="Claude credits available">
+                <div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">Loading</span></div>
+                <div class="usage-bottom"><a class="usage-balance-link" href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Claude credit balance" hidden>View balance</a><span class="usage-freshness" hidden></span></div>
               </div>
             </div>
           </section>
@@ -86,6 +95,10 @@
               <div id="usage-codex-weekly" class="usage-window" aria-label="Codex weekly usage">
                 <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
                 <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+              </div>
+              <div id="usage-codex-credits" class="usage-window usage-credits" aria-label="Codex credits available">
+                <div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">Loading</span></div>
+                <div class="usage-bottom"><a class="usage-balance-link" href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Codex credit balance" hidden>View balance</a><span class="usage-freshness" hidden></span></div>
               </div>
             </div>
           </section>

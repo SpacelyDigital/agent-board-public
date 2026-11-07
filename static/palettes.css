@@ -1,8 +1,5 @@
 /* Shared by the live board and theme previews. The two mode selectors for
    each theme deliberately contain complete palettes, so modes stay independent. */
-:root[data-palette] {
-  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-}
 /* Preserve layout typography when only the light/dark mode changes. */
 :where([data-palette]) h1 { font-size: 28px; letter-spacing: -1.3px; }
 :where([data-palette]) .heading { gap: 14px; }

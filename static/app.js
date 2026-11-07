@@ -5,12 +5,13 @@
   // persistent web storage, and the global object after initialization.
   const accessToken = typeof window.__agentBoardAccessToken === "string" ? window.__agentBoardAccessToken : null;
   delete window.__agentBoardAccessToken;
+  const nativeBoard = window.webkit?.messageHandlers?.agentBoard;
   const labels = { cooking: "Cooking", needs_you: "Needs you", ready: "Ready", disconnected: "Disconnected" };
   const priority = { needs_you: 0, ready: 1, disconnected: 2, cooking: 3 };
   const elements = Object.fromEntries([
     "connection", "connection-text", "summary", "monitor-message", "action-message", "conversation-updates", "loading", "empty", "sample-controls", "usage",
     "attention-section", "attention-list", "attention-count", "cooking-section", "cooking-list", "cooking-count",
-    "history", "history-count", "history-list", "sources", "last-sync", "sound-toggle", "sound-select", "sound-preview", "fullscreen-toggle",
+    "history", "history-count", "history-list", "sources", "last-sync", "settings-toggle", "sound-toggle", "sound-select", "sound-preview", "fullscreen-toggle",
     "board-tab", "background-tab", "board-panel", "background-panel", "background-list", "background-empty", "background-count",
     "appearance-menu", "layout-select", "theme-select", "mode-select", "motion-toggle", "motion-option", "active-workspace", "layout-primary", "primary-heading", "primary-card", "layout-sections", "split-queue", "split-list",
     "rename-dialog", "rename-form", "rename-input", "rename-error", "rename-cancel", "rename-save"
@@ -22,11 +23,13 @@
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const pending = new Set();
   const usageWindows = [
-    { provider: "claude", window: "five_hour" },
     { provider: "claude", window: "weekly" },
     { provider: "codex", window: "weekly" }
   ].map(item => ({ ...item, element: document.getElementById(`usage-${item.provider}-${item.window}`) }));
+  const creditRows = ["claude", "codex"].map(id => ({id, element: document.getElementById(`usage-${id}-credits`)}));
   const percentFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+  const creditFormat = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 21 });
+  const dollarFormat = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" });
   let state = null;
   let activeTab = "board";
   let connected = false;
@@ -435,10 +438,29 @@
       }
       item.element.title = [localReading ? "This is a cached provider reading from local session data." : "", provider?.error, updated ? `Last usage reading: ${localTimestamp(updated)}` : ""].filter(Boolean).join("\n");
     }
+    for (const {id, element} of creditRows) {
+      const provider = state?.usage?.find(source => source.id === id);
+      const credit = provider?.credits;
+      const sample = state?.sample_mode === true;
+      const hasBalance = credit?.unit === (id === "claude" ? "USD" : "credits") && Number.isFinite(credit.amount);
+      const loading = !hasBalance && ((provider?.loading && connected) || (!state && !attemptedConnection));
+      const stale = hasBalance && !sample && (!connected || credit.stale === true);
+      const observed = hasBalance && Number.isFinite(credit.observed_at) && credit.observed_at > 0 ? credit.observed_at : null;
+      const balance = id === "claude" ? dollarFormat : creditFormat;
+      element.classList.toggle("unavailable", !hasBalance);
+      element.classList.toggle("stale", stale);
+      setText(element.querySelector(".usage-value"), hasBalance ? balance.format(credit.amount) : loading ? "Loading" : "Unavailable");
+      element.querySelector(".usage-balance-link").hidden = hasBalance || loading || sample || document.documentElement.dataset.providerMarks === "off";
+      const freshness = element.querySelector(".usage-freshness");
+      freshness.hidden = !hasBalance || (!sample && !stale);
+      setText(freshness, sample ? "Sample balance" : stale ? observed ? `Stale · Updated ${elapsed(observed)} ago` : "Stale" : "");
+      freshness.title = observed ? `Last balance reading: ${localTimestamp(observed)}` : "";
+    }
   }
 
   function render() {
     const sampleMode = state?.sample_mode === true;
+    elements["settings-toggle"].hidden = !nativeBoard || sampleMode;
     elements.connection.className = `connection ${connected ? "live" : "offline"}`;
     setText(elements["connection-text"], connected ? sampleMode ? "Sample board" : "Monitoring locally" : attemptedConnection ? "Monitor disconnected" : "Connecting");
     elements["sample-controls"].hidden = !sampleMode;
@@ -861,7 +883,7 @@
   }
 
   function renderSoundButton() {
-    setText(elements["sound-toggle"], soundEnabled ? "Sound on" : "Sound off");
+    elements["sound-toggle"].title = soundEnabled ? "Mute sound" : "Unmute sound";
     elements["sound-toggle"].setAttribute("aria-pressed", String(soundEnabled));
   }
 
@@ -930,23 +952,33 @@
     soundGeneration += 1;
     if (!soundEnabled && activeSound) { activeSound.stop(); activeSound = null; }
     try { localStorage.setItem("agent-board:sound", soundEnabled ? "on" : "off"); } catch (_) { /* Optional preference. */ }
-    if (soundEnabled) await unlockAttentionAudio();
     renderSoundButton();
+    if (soundEnabled) await unlockAttentionAudio();
   });
 
-  const nativeFullscreen = window.webkit?.messageHandlers?.agentBoard;
-  elements["fullscreen-toggle"].hidden = !nativeFullscreen && !document.documentElement.requestFullscreen;
+  elements["settings-toggle"].addEventListener("click", () => nativeBoard?.postMessage("settings"));
+
+  function renderFullscreenButton(active) {
+    const button = elements["fullscreen-toggle"];
+    const label = active ? "Exit full screen" : "Full screen";
+    button.dataset.fullscreen = String(active);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+
+  elements["fullscreen-toggle"].hidden = !nativeBoard && !document.documentElement.requestFullscreen;
   elements["fullscreen-toggle"].addEventListener("click", async () => {
     try {
-      if (nativeFullscreen) {
-        nativeFullscreen.postMessage("fullscreen");
+      if (nativeBoard) {
+        nativeBoard.postMessage("fullscreen");
         return;
       }
       if (document.fullscreenElement) await document.exitFullscreen();
       else await document.documentElement.requestFullscreen();
     } catch (_) { /* The browser can decline fullscreen. */ }
   });
-  document.addEventListener("fullscreenchange", () => setText(elements["fullscreen-toggle"], document.fullscreenElement ? "Exit full screen" : "Full screen"));
+  document.addEventListener("fullscreenchange", () => renderFullscreenButton(Boolean(document.fullscreenElement)));
+  window.addEventListener("agentboard:fullscreenchange", event => renderFullscreenButton(event.detail === true));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   window.addEventListener("online", () => refresh());
   renderAppearance();

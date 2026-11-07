@@ -134,11 +134,12 @@ class Monitor:
             sample_now = time.time()
             self.usage = [{"id": provider, "name": name, "source": "sample", "sample": True,
                            "available": True, "updated_at": None, "stale": False, "loading": False,
-                           "error": "Sample values, not your account usage.", "windows": windows}
-                          for provider, name, windows in (
-                              ("claude", "Claude", [{"id": "five_hour", "remaining_percent": 82, "reset_at": sample_now + 3600},
-                                                    {"id": "weekly", "remaining_percent": 91, "reset_at": sample_now + 172800}]),
-                              ("codex", "Codex", [{"id": "weekly", "remaining_percent": 64, "reset_at": sample_now + 259200}]))]
+                           "error": "Sample values, not your account usage.",
+                           "windows": [{"id": "weekly", "remaining_percent": percent, "reset_at": sample_now + reset}],
+                           "credits": {"amount": balance, "unit": unit}}
+                          for provider, name, percent, reset, balance, unit in (
+                              ("claude", "Claude", 91, 172800, 25, "USD"),
+                              ("codex", "Codex", 64, 259200, 240, "credits"))]
 
     def advance_samples(self, action):
         """Change only the two built-in examples in the isolated sample store."""
@@ -259,6 +260,8 @@ class Monitor:
             codex["stale"] = now - codex["updated_at"] > STALE_SECONDS or expired or not readings
             codex["error"] = ("Waiting for another verified local usage reading."
                               if codex["stale"] else None)
+            if "credits" in codex:
+                codex["credits"]["stale"] = now - codex["credits"]["observed_at"] > STALE_SECONDS or not readings
         else:
             codex = {"id": "codex", "name": "Codex", "source": "local_record", "available": False,
                      "updated_at": None, "stale": False, "loading": False, "windows": [],
@@ -292,6 +295,8 @@ class Monitor:
                     for item in self.usage:
                         item.update(available=False, loading=False,
                                     stale=bool(item.get("updated_at")), error="Usage could not be refreshed.")
+                        if "credits" in item:
+                            item["credits"]["stale"] = True
             self.stop.wait(60)
 
     def scan_projects(self):

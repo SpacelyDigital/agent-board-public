@@ -1,4 +1,4 @@
-"""Original audio resources, distribution staging and local-only delivery."""
+"""Synthesized and supplied audio resources, staging and local-only delivery."""
 
 import hashlib
 import http.client
@@ -26,9 +26,9 @@ spec.loader.exec_module(generator)
 
 
 class AlertSoundTests(unittest.TestCase):
-    def test_original_files_are_reproducible_distinct_bounded_pcm(self):
+    def test_nine_synthesized_files_are_reproducible_distinct_bounded_pcm(self):
         hashes = set()
-        for sound_id, _, duration in generator.SOUNDS:
+        for sound_id, _, duration in generator.SYNTHESIZED_SOUNDS:
             raw = (ROOT / "static/sounds" / (sound_id + ".wav")).read_bytes()
             with self.subTest(sound=sound_id):
                 self.assertEqual(raw, generator.make_sound(sound_id))
@@ -44,7 +44,55 @@ class AlertSoundTests(unittest.TestCase):
                 self.assertLess(abs(values[-1]), 20)
                 self.assertLess(len(raw), 100_000)
                 hashes.add(hashlib.sha256(raw).hexdigest())
-        self.assertEqual(len(hashes), 10)
+        self.assertEqual(len(hashes), 9)
+
+    def test_supplied_fart_is_the_pinned_metadata_free_pcm_recording(self):
+        raw = (ROOT / "static/sounds/fart.wav").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "da103b9e5a4936d572452c5c55f6e1acffc30ae05f2efeb3c6004d0b5b73aad5")
+        self.assertEqual(len(raw), 13868)
+        self.assertEqual(raw[:4], b"RIFF")
+        self.assertEqual(raw[8:12], b"WAVE")
+        self.assertEqual(struct.unpack_from("<I", raw, 4)[0], len(raw) - 8)
+        chunks = []
+        offset = 12
+        while offset < len(raw):
+            chunk, size = struct.unpack_from("<4sI", raw, offset)
+            chunks.append(chunk)
+            offset += 8 + size + size % 2
+        self.assertEqual(offset, len(raw))
+        self.assertEqual(chunks, [b"fmt ", b"data"])
+        with wave.open(io.BytesIO(raw), "rb") as audio:
+            self.assertEqual((audio.getnchannels(), audio.getsampwidth(), audio.getframerate(), audio.getcomptype()),
+                             (1, 2, 22050, "NONE"))
+            self.assertEqual(audio.getnframes(), 6912)
+            samples = struct.unpack("<6912h", audio.readframes(6912))
+        self.assertLessEqual(max(abs(value) for value in samples), round(.141 * 32767))
+
+    def test_generator_leaves_supplied_recording_unchanged_and_never_creates_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            sounds = root / "static/sounds"
+            sounds.mkdir(parents=True)
+            recorded = sounds / "fart.wav"
+            recorded.write_bytes(b"owned recording canary")
+            recorded.chmod(0o600)
+            before = recorded.stat()
+            with patch.object(generator, "__file__", str(root / "tools/generate_alert_sounds.py")):
+                generator.main()
+                self.assertEqual(recorded.read_bytes(), b"owned recording canary")
+                after = recorded.stat()
+                self.assertEqual((before.st_ino, before.st_mode, before.st_mtime_ns),
+                                 (after.st_ino, after.st_mode, after.st_mtime_ns))
+                self.assertEqual({p.name for p in sounds.iterdir()},
+                                 {key + ".wav" for key in install.ALERT_SOUND_IDS})
+                recorded.unlink()
+                generator.main()
+                self.assertFalse(recorded.exists())
+
+    def test_supplied_recording_cannot_be_synthesized(self):
+        with self.assertRaises(ValueError):
+            generator.make_sound("fart")
 
     def test_generator_native_and_web_fixed_choices_agree(self):
         choices = [key for key, _, _ in generator.SOUNDS]

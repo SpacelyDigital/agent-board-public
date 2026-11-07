@@ -25,6 +25,7 @@ import sys
 import time
 from typing import Any, Callable
 
+from local_quota import parse_codex_credits
 from process_reader import OutputLimitExceeded, read_process, start_process, stop_process
 from privacy_network import ProviderRequestError, read_provider_json
 
@@ -71,7 +72,7 @@ def _window(ident: str, label: str, used: Any, reset: Any) -> dict[str, Any] | N
     return {"id": ident, "label": label, "remaining_percent": round(100 - percent, 2), "reset_at": reset_at}
 
 
-def parse_codex_usage(response: dict[str, Any]) -> list[dict[str, Any]]:
+def parse_codex_usage(response: dict[str, Any], *, include_credits: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     if not isinstance(response, dict):
         raise UsageUnavailable("Codex returned an unsupported account usage response.")
     by_id = response.get("rateLimitsByLimitId")
@@ -81,12 +82,22 @@ def parse_codex_usage(response: dict[str, Any]) -> list[dict[str, Any]]:
         bucket = response.get("rateLimits")
     if not isinstance(bucket, dict) or bucket.get("limitId") not in (None, "codex"):
         raise UsageUnavailable("The Codex account did not return its subscription usage window.")
+    windows = []
     for key in ("primary", "secondary"):
         value = bucket.get(key)
         if isinstance(value, dict) and value.get("windowDurationMins") == 10080:
             window = _window("weekly", "Weekly", value.get("usedPercent"), value.get("resetsAt"))
             if window:
-                return [window]
+                windows = [window]
+                break
+    if include_credits:
+        credits = parse_codex_credits(bucket.get("credits"), has_credits_key="hasCredits")
+        if credits is not None:
+            return {"windows": windows, "credits": credits}
+        if windows:
+            return {"windows": windows}
+    elif windows:
+        return windows
     raise UsageUnavailable("The Codex account did not return a weekly usage window.")
 
 
@@ -121,7 +132,7 @@ def _codex_binary() -> str:
     raise UsageUnavailable("Codex is not installed or its account reader could not be found.")
 
 
-def fetch_codex_usage() -> list[dict[str, Any]]:
+def fetch_codex_usage(*, include_credits: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     """Use only initialize + account/rateLimits/read; never start a thread/turn."""
     process = None
     selector = selectors.DefaultSelector()
@@ -175,7 +186,7 @@ def fetch_codex_usage() -> list[dict[str, Any]]:
         receive(1)
         send({"jsonrpc": "2.0", "method": "initialized"})
         send({"jsonrpc": "2.0", "id": 2, "method": "account/rateLimits/read", "params": {}})
-        return parse_codex_usage(receive(2))
+        return parse_codex_usage(receive(2), include_credits=include_credits)
     except UsageUnavailable:
         raise
     except (OSError, subprocess.SubprocessError):
@@ -391,8 +402,8 @@ def fetch_claude_usage() -> list[dict[str, Any]]:
 class UsageSource:
     """One account-only request per provider per minute, retaining stale successes."""
 
-    def __init__(self, fetchers: dict[str, Callable[[], list[dict[str, Any]]]] | None = None):
-        self._fetchers = fetchers or {"codex": fetch_codex_usage, "claude": fetch_claude_usage}
+    def __init__(self, fetchers: dict[str, Callable[[], list[dict[str, Any]] | dict[str, Any]]] | None = None):
+        self._fetchers = fetchers or {"codex": lambda: fetch_codex_usage(include_credits=True), "claude": fetch_claude_usage}
         self._cache: dict[str, dict[str, Any]] = {}
         self._attempts: dict[str, float] = {}
 
@@ -404,10 +415,15 @@ class UsageSource:
             if last_attempt is None or now - last_attempt >= REFRESH_SECONDS or now < last_attempt:
                 self._attempts[ident] = now
                 try:
-                    windows = self._fetchers[ident]()
-                    if not windows:
-                        raise UsageUnavailable("Account usage windows are currently unavailable.")
+                    result = self._fetchers[ident]()
+                    windows = result["windows"] if isinstance(result, dict) else result
+                    credits = result.get("credits") if isinstance(result, dict) else None
+                    windows = [window for window in windows if window.get("id") == "weekly"]
+                    if not windows and credits is None:
+                        raise UsageUnavailable("Weekly account usage is currently unavailable.")
                     cached = {"id": ident, "name": name, "available": True, "updated_at": now, "stale": False, "error": None, "windows": windows, "loading": False}
+                    if credits is not None:
+                        cached["credits"] = {**credits, "observed_at": now}
                 except Exception as error:
                     message = str(error) if isinstance(error, UsageUnavailable) else "Account usage could not be read."
                     if cached and cached.get("available"):
@@ -418,6 +434,8 @@ class UsageSource:
             entry = copy.deepcopy(cached)
             if entry.get("updated_at") is not None and now - entry["updated_at"] > STALE_SECONDS:
                 entry["stale"] = True
+            if "credits" in entry:
+                entry["credits"]["stale"] = entry["stale"]
             # Never roll an expired window forward or infer that it has reset to
             # 100%. Keep its last observed timestamp and mark the reading stale.
             if any(window["reset_at"] <= now for window in entry["windows"]):

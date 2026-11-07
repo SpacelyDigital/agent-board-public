@@ -92,7 +92,7 @@ class LocalQuotaTests(unittest.TestCase):
             export.mkdir(parents=True)
             (export / quota.CLAUDE_EXPORT_SLOTS[0]).write_bytes(raw)
             reader = quota.ClaudeLocalQuota(root)
-            self.assertEqual(reader.snapshot(NOW)["windows"], result["windows"])
+            self.assertEqual(reader.snapshot(NOW)["windows"], [result["windows"][1]])
             self.assertTrue(reader.snapshot(NOW + 121)["stale"])
 
     def test_valid_empty_export_clears_subscription_availability(self):
@@ -236,7 +236,7 @@ class LocalQuotaTests(unittest.TestCase):
             reader = quota.ClaudeLocalQuota(Path(temporary) / ".claude")
             reading = reader.snapshot(NOW + 10)
             self.assertTrue(reading["available"])
-            self.assertEqual(reading["windows"][0]["remaining_percent"], 75)
+            self.assertEqual([(window["id"], window["remaining_percent"]) for window in reading["windows"]], [("weekly", 60)])
 
 
 if __name__ == "__main__":

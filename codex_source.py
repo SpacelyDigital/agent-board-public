@@ -26,6 +26,7 @@ from source_access import require_source_path, require_source_directory, source_
 from claude_source import (_TranscriptBudget, _TranscriptCursor, _transcript_object,
                            _transcript_constant, _transcript_float, TRANSCRIPT_MAX_BUFFER_BYTES,
                            TRANSCRIPT_RECORD_BYTES, TRANSCRIPT_READ_CHUNK)
+from local_quota import parse_codex_credits
 
 LOOKBACK_SECONDS = 24 * 60 * 60
 STALE_SECONDS = 30 * 60
@@ -371,6 +372,9 @@ class _FileState:
                         safe[window] = {key: value[key] for key in _LIMIT_WINDOW_FIELDS
                                         if key in value and (value[key] is None or
                                             type(value[key]) in (int, float) and _timestamp(value[key], -1) != -1)}
+                credits = limits.get("credits")
+                if safe.get("limit_id") in (None, "codex") and parse_codex_credits(credits, has_credits_key="has_credits") is not None:
+                    safe["credits"] = {key: credits[key] for key in _LIMIT_CREDIT_FIELDS}
                 self.local_rate_limits, self.local_rate_limits_at = safe, timestamp
         if kind == "event_msg" and event == "thread_rolled_back":
             self.status = "disconnected"
@@ -433,6 +437,7 @@ class _FileState:
 
 
 _LIMIT_WINDOW_FIELDS = {"used_percent": True, "window_minutes": True, "resets_at": True}
+_LIMIT_CREDIT_FIELDS = {"balance": "text", "has_credits": "text", "unlimited": "text"}
 _CODEX_RECORD_FIELDS = {"type": True, "timestamp": True, "payload": {
     **{key: True for key in ("type", "id", "cwd", "thread_source", "parent_thread_id", "agent_path",
                              "agent_nickname", "agent_role", "turn_id", "root_turn_id", "started_at",
@@ -440,7 +445,8 @@ _CODEX_RECORD_FIELDS = {"type": True, "timestamp": True, "payload": {
     "source": {"subagent": False, "parent_thread_id": False},
     "message": "text", "reason": "text", "last_agent_message": "text", "arguments": "text",
     "content": ({"type": True, "text": "text"},),
-    "rate_limits": {"limit_id": True, "primary": _LIMIT_WINDOW_FIELDS, "secondary": _LIMIT_WINDOW_FIELDS},
+    "rate_limits": {"limit_id": True, "primary": _LIMIT_WINDOW_FIELDS, "secondary": _LIMIT_WINDOW_FIELDS,
+                    "credits": _LIMIT_CREDIT_FIELDS},
 }}
 
 

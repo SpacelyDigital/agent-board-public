@@ -14,9 +14,8 @@
     {id: "studio", title: "Studio booking flow", provider: "Claude", project: "Spacely Digital", status: "cooking", label: "Cooking", age: "Running 7m", preview: "Reviewing the booking form and confirmation screen."}
   ];
   const usage = [
-    {provider: "Claude", label: "5 hour", remaining: 86, reset: "3h 12m"},
-    {provider: "Claude", label: "Weekly", remaining: 93, reset: "6d 11h"},
-    {provider: "Codex", label: "Weekly", remaining: 24, reset: "5d 9h"}
+    {provider: "Claude", remaining: 93, reset: "6d 11h", credits: "$25.00"},
+    {provider: "Codex", remaining: 24, reset: "5d 9h", credits: "240"}
   ];
   const preview = document.querySelector("#color-preview");
   const escape = value => String(value).replace(/[&<>"']/g, character => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[character]);
@@ -45,9 +44,13 @@
 
   function providerUsage(provider) {
     const id = provider.toLowerCase();
+    const example = usage.find(item => item.provider === provider);
     return `<section class="usage-provider" data-provider="${id}" aria-labelledby="example-${id}-usage-heading">
       <h2 id="example-${id}-usage-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-${id}" aria-hidden="true"></span>${provider}</h2>
-      <div class="usage-windows">${usage.filter(window => window.provider === provider).map(window => `<div class="usage-window" aria-label="${provider} ${window.label} usage"><div class="usage-top"><span class="usage-label">${window.label}</span><span class="usage-value">${window.remaining}% remaining</span></div><div class="usage-bottom"><span class="usage-reset">Resets in ${window.reset}</span></div></div>`).join("")}</div>
+      <div class="usage-windows">
+        <div class="usage-window" aria-label="${provider} weekly usage"><div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">${example.remaining}% remaining</span></div><div class="usage-bottom"><span class="usage-reset">Resets in ${example.reset}</span></div></div>
+        <div class="usage-window usage-credits" aria-label="${provider} credits available"><div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">${example.credits}</span></div><div class="usage-bottom"><span class="usage-freshness">Sample balance</span></div></div>
+      </div>
     </section>`;
   }
 

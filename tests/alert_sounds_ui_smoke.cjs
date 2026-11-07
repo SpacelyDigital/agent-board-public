@@ -5,7 +5,8 @@ const http = require('http');
 const assert = require('assert/strict');
 const { webkit } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '..');
-const choices = [['soft-ding', .34], ['chime', .9], ['bell', 1.1], ['glass', .65], ['marimba', .6], ['arcade', .45], ['radar', .7], ['space-signal', .85], ['pop', .16], ['fart', .75]];
+const recordedFartDuration = 6912 / 22050;
+const choices = [['soft-ding', .34], ['chime', .9], ['bell', 1.1], ['glass', .65], ['marimba', .6], ['arcade', .45], ['radar', .7], ['space-signal', .85], ['pop', .16], ['fart', recordedFartDuration]];
 const native = fs.readFileSync(path.join(root, 'MacApp.swift'), 'utf8');
 const begin = native.indexOf('let script = """', native.indexOf('    func installAccessScript()'));
 const end = native.indexOf('"""', begin + 16);
@@ -46,9 +47,10 @@ const server = http.createServer((req, res) => {
   const errors = [], outside = [];
   try {
     await context.addInitScript({content: `
-      window.__audioPlayed = []; window.__audioDecoded = 0; window.__preferenceMessages = [];
+      window.__audioPlayed = []; window.__audioDecoded = 0; window.__preferenceMessages = []; window.__toolbarMessages = [];
       Object.defineProperty(window, 'webkit', {configurable:true,value:{messageHandlers:{agentBoard:{postMessage(message) {
         if (message.kind === 'displayPreferences') { window.__preferenceMessages.push(message); window.name = JSON.stringify(message.values); }
+        if (message === 'settings' || message === 'fullscreen') window.__toolbarMessages.push(message);
       }}}}});
       const contextType = window.AudioContext || window.webkitAudioContext;
       const decode = contextType.prototype.decodeAudioData;
@@ -66,7 +68,26 @@ const server = http.createServer((req, res) => {
     page.on('request', req => {if (!req.url().startsWith(origin + '/')) outside.push(req.url());});
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#connection-text').textContent !== 'Connecting');
-    await page.locator('#appearance-menu > summary').click();
+    const settings = page.getByRole('button', {name:'Settings', exact:true});
+    const sound = page.getByRole('button', {name:'Sound', exact:true});
+    const appearance = page.locator('#appearance-menu > summary');
+    const fullscreen = page.getByRole('button', {name:'Full screen', exact:true});
+    assert.deepEqual(await page.locator('.toolbar-icon').evaluateAll(controls => controls.map(control => control.title)), ['Settings', 'Unmute sound', 'Appearance', 'Full screen']);
+    assert.deepEqual(await page.locator('.toolbar-icon').allTextContents().then(texts => texts.map(text => text.trim())), ['', '', '', '']);
+    await settings.press('Enter');
+    await fullscreen.click();
+    assert.deepEqual(await page.evaluate(() => window.__toolbarMessages), ['settings', 'fullscreen']);
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('agentboard:fullscreenchange', {detail:true})));
+    assert.equal(await page.getByRole('button', {name:'Exit full screen', exact:true}).getAttribute('title'), 'Exit full screen');
+    assert(await page.locator('.fullscreen-exit').isVisible());
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('agentboard:fullscreenchange', {detail:false})));
+    assert(await fullscreen.isVisible());
+    await appearance.press('Enter');
+    assert(await page.locator('#layout-select').isVisible());
+    await page.keyboard.press('Escape');
+    assert.equal(await appearance.evaluate(element => document.activeElement === element), true);
+    await appearance.press('Space');
+    assert(await page.locator('#sound-select').isVisible());
     assert.equal(await page.locator('#sound-select option').count(),10);
     assert.equal(await page.locator('#sound-select').inputValue(),'soft-ding');
     assert.equal(await page.locator('#sound-toggle').getAttribute('aria-pressed'),'false');
@@ -87,16 +108,21 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#sound-select').inputValue(),'fart','native-persisted sound choice did not restore');
     assert.equal(await page.locator('#sound-toggle').getAttribute('aria-pressed'),'false');
     await page.locator('#sound-toggle').click();
+    assert.equal(await sound.getAttribute('title'), 'Mute sound');
+    assert(await page.locator('.sound-waves').isVisible());
+    assert(!await page.locator('.sound-muted').isVisible());
     assert.equal(await page.evaluate(() => window.__preferenceMessages.at(-1).values['agent-board:sound']),'on');
     await page.evaluate(() => Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>true}));
     current = {...row,status:'ready',event_id:'fixture-complete'};
     await page.waitForFunction(() => window.__audioPlayed.length === 1);
-    assert(Math.abs((await page.evaluate(() => window.__audioPlayed[0].duration))-.75)<.002,'attention did not use restored Fart');
+    assert(Math.abs((await page.evaluate(() => window.__audioPlayed[0].duration))-recordedFartDuration)<.002,'attention did not use restored Fart recording');
     await page.evaluate(() => Object.defineProperty(document,'hasFocus',{configurable:true,value:()=>false}));
     current = {...row,status:'ready',event_id:'fixture-background-complete'};
     await page.waitForTimeout(2300);
     assert.equal(await page.evaluate(() => window.__audioPlayed.length),1,'background native board also played foreground audio');
     await page.locator('#sound-toggle').click();
+    assert.equal(await sound.getAttribute('title'), 'Unmute sound');
+    assert(await page.locator('.sound-muted').isVisible());
     assert.equal(await page.evaluate(() => window.__preferenceMessages.at(-1).values['agent-board:sound']),'off');
     current = {...row,event_id:'fixture-race-start'};
     await page.reload();
@@ -123,13 +149,16 @@ const server = http.createServer((req, res) => {
       await page.locator('#layout-select').selectOption(layout);
       const metrics = await page.evaluate(() => {
         const controls = ['#sound-select','#sound-preview'].map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {left:r.left,right:r.right,width:r.width,height:r.height};});
-        return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,controls};
+        const toolbar = [...document.querySelectorAll('.toolbar-icon')].map(icon => icon.getBoundingClientRect().toJSON());
+        return {width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,controls,toolbar,font:getComputedStyle(document.body).fontFamily};
       });
       assert(!metrics.overflow, `page overflow ${layout}/${width}`);
       assert(metrics.controls.every(r=>r.left>=-1 && r.right<=metrics.width+1 && r.width>=20 && r.height>=18), `audio controls clipped ${layout}/${width}: ${JSON.stringify(metrics)}`);
+      assert(metrics.toolbar.every((r,index) => r.left>=0 && r.right<=width && r.width>=32 && Math.abs(r.top-metrics.toolbar[0].top)<1 && (!index || r.left>=metrics.toolbar[index-1].right)), `toolbar clipped or wrapped ${layout}/${width}`);
+      assert.match(metrics.font, /-apple-system/);
       geometryChecks++;
     }
     assert.deepEqual(errors,[]);assert.deepEqual(outside,[]);
-    console.log(JSON.stringify({passed:true,previewed_actual_decoded_WAVs:10,native_publisher_choice_and_mute_sync:true,restored_choice_used_for_new_attention:true,background_native_web_audio_suppressed:true,background_transition_during_decode_suppressed:true,layout_width_checks:geometryChecks,external_requests:0,OS_notifications_or_audibility_verified:false}));
+    console.log(JSON.stringify({passed:true,previewed_actual_decoded_WAVs:10,native_publisher_choice_and_mute_sync:true,restored_choice_used_for_new_attention:true,background_native_web_audio_suppressed:true,background_transition_during_decode_suppressed:true,toolbar_keyboard_and_tooltips:true,layout_width_checks:geometryChecks,external_requests:0,OS_notifications_or_audibility_verified:false}));
   } finally {await context.close();await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error.stack);server.close();process.exitCode=1;});

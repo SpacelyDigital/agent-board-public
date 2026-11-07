@@ -16,8 +16,9 @@ async function main() {
   const token = 'disposable-quota-ui-token';
   const at = Date.now() / 1000;
   let usage = [];
+  let sampleMode = false;
   const state = () => ({now: at, csrf_token: 'disposable-csrf', sessions: [], history: [],
-    background: [], sources: [], counts: {cooking: 0, needs_you: 0, ready: 0, disconnected: 0}, usage});
+    background: [], sources: [], counts: {cooking: 0, needs_you: 0, ready: 0, disconnected: 0}, usage, sample_mode: sampleMode});
   const server = http.createServer((request, response) => {
     const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
     if (pathname === '/api/state') {
@@ -49,7 +50,7 @@ async function main() {
       PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: home,
       TMPDIR: os.tmpdir(), LANG: 'en_US.UTF-8'
     }});
-    const context = await browser.newContext({reducedMotion: 'reduce'});
+    const context = await browser.newContext({reducedMotion: 'reduce', locale: 'en-US'});
     await context.route('**/*', route => {
       if (!route.request().url().startsWith(base + '/')) {
         external.push(route.request().url());
@@ -60,48 +61,60 @@ async function main() {
     await context.addInitScript(value => { window.__agentBoardAccessToken = value; }, token);
     const page = await context.newPage();
     page.on('pageerror', error => errors.push(String(error)));
-    const provider = (windows, options = {}) => ({id: 'claude', name: 'Claude', source: 'local_export',
+    const provider = (id, windows, options = {}) => ({id, source: id === 'claude' ? 'local_export' : 'local_record',
       updated_at: at, available: !!windows.length, stale: false, windows, loading: false, ...options});
-    const five = page.locator('#usage-claude-five_hour');
     const weekly = page.locator('#usage-claude-weekly');
+    const claudeCredits = page.locator('#usage-claude-credits');
+    const codexCredits = page.locator('#usage-codex-credits');
+    const codex = (credits) => provider('codex', [], {credits});
     const phase = async next => {
-      usage = [next];
+      usage = next;
       const response = page.waitForResponse(response => response.url() === base + '/api/state');
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
       await response;
     };
-    usage = [provider([{id: 'five_hour', remaining_percent: 32, reset_at: null},
-      {id: 'weekly', remaining_percent: 32, reset_at: at + 4 * 3600}])];
+    const claude = provider('claude', [{id: 'five_hour', remaining_percent: 4, reset_at: null},
+      {id: 'weekly', remaining_percent: 32, reset_at: at + 4 * 3600}]);
+    usage = [claude, codex({amount: 0, unit: 'credits', observed_at: at})];
     await page.goto(base + '/');
-    await five.locator('.usage-value').filter({hasText: '32% remaining'}).waitFor();
-    assert.equal(await five.locator('.usage-reset').textContent(), 'Reset time unavailable.');
-    assert.equal(await five.locator('.usage-freshness').isVisible(), true);
-    assert.match(await five.locator('.usage-freshness').textContent(), /Observed locally/);
+    await weekly.locator('.usage-value').filter({hasText: '32% remaining'}).waitFor();
+    assert.equal(await page.locator('#usage-claude-five_hour').count(), 0);
+    assert.match(await weekly.locator('.usage-freshness').textContent(), /Observed locally/);
     assert.match(await weekly.locator('.usage-reset').textContent(), /Resets in 4h/);
+    assert.equal(await claudeCredits.locator('.usage-value').textContent(), 'Unavailable');
+    assert.equal(await claudeCredits.getByRole('link').getAttribute('href'), 'https://claude.ai/settings/usage');
+    assert.equal(await codexCredits.locator('.usage-value').textContent(), '0');
+    assert.equal(await codexCredits.getByRole('link').count(), 0);
 
-    await phase(provider([{id: 'weekly', remaining_percent: 32, reset_at: at + 4 * 3600}]));
-    await five.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
-    assert.equal(await five.locator('.usage-freshness').isVisible(), false);
-    assert.equal(await five.locator('.usage-freshness').getAttribute('title'), '');
-    assert(!/Last usage reading/.test(await five.getAttribute('title')));
-    assert.equal(await weekly.locator('.usage-freshness').isVisible(), true);
+    await phase([claude, codex({amount: -12.5, unit: 'credits', observed_at: at - 180, stale: true})]);
+    await codexCredits.locator('.usage-value').filter({hasText: '-12.5'}).waitFor();
+    assert.match(await codexCredits.locator('.usage-freshness').textContent(), /Stale.*3m/);
 
-    await phase(provider([{id: 'five_hour', remaining_percent: 32, reset_at: null}],
-      {updated_at: at - 180, stale: true}));
-    await five.locator('.usage-value').filter({hasText: '32% remaining'}).waitFor();
-    assert.match(await five.locator('.usage-freshness').textContent(), /Stale.*3m/);
+    await phase([provider('claude', []), codex({amount: '0', unit: 'credits'})]);
+    await codexCredits.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
+    assert.equal(await codexCredits.getByRole('link').getAttribute('href'), 'https://chatgpt.com/codex/settings/usage');
+    assert.equal(await codexCredits.locator('.usage-freshness').isVisible(), false);
     assert.equal(await weekly.locator('.usage-freshness').isVisible(), false);
-    assert.equal(await five.locator('.usage-reset').textContent(), 'Reset time unavailable.');
 
-    await phase(provider([]));
-    await five.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
-    assert.equal(await five.locator('.usage-freshness').isVisible(), false);
-    assert.equal(await weekly.locator('.usage-freshness').isVisible(), false);
+    sampleMode = true;
+    await phase([provider('claude', [], {credits: {amount: 25, unit: 'USD'}}),
+      codex({amount: 240, unit: 'credits'})]);
+    await claudeCredits.locator('.usage-value').filter({hasText: '$25.00'}).waitFor();
+    assert.equal(await claudeCredits.locator('.usage-freshness').textContent(), 'Sample balance');
+    assert.equal(await codexCredits.locator('.usage-value').textContent(), '240');
+    assert.equal(await page.getByRole('link', {name: /credit balance/}).count(), 0);
+    for (const width of [270, 390, 1080]) {
+      await page.setViewportSize({width, height: 800});
+      assert(await page.locator('.usage-credits').evaluateAll(rows => rows.every(row => {
+        const box = row.getBoundingClientRect();
+        return box.left >= 0 && box.right <= innerWidth && row.scrollWidth <= row.clientWidth + 1;
+      })), `Credit row clips at ${width}px`);
+    }
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);
     const result = {passed: true, phases: 4, engine: 'WebKit', provider_calls: 0,
-      missing_reset_preserves_percentage: true, absent_windows_have_no_observation_age: true,
-      weekly_near_reset_keeps_label: true, stale_observation_retains_age: true};
+      five_hour_hidden: true, weekly_reset_retained: true, zero_and_negative_balances: true,
+      missing_balances_link_to_provider: true, stale_balance_retains_age: true, samples_labelled: true};
     if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(result, null, 2) + '\n');
     console.log(JSON.stringify(result));
   } finally {

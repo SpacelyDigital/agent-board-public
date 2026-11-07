@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from codex_source import CodexSource
+from local_quota import parse_codex_observation
 
 
 class CodexHistoryVerificationTests(unittest.TestCase):
@@ -254,6 +255,27 @@ class CodexHistoryVerificationTests(unittest.TestCase):
                     "primary": {"used_percent": 10, "window_minutes": 10080, "resets_at": int(self.now + 600)}}))
                 observed = self.drain(CodexSource(self.root, confine_paths=True))
                 self.assertEqual(observed["local_rate_limits"]["limit_id"], "")
+
+    def test_verified_large_rollout_projects_credits_and_newer_absence_clears_them(self):
+        limits = {"limit_id": "codex", "credits": {"balance": "-1.125", "has_credits": False,
+                                                   "unlimited": False, "account_id": "PRIVATE-ACCOUNT"}}
+        # This takes the streaming projection path rather than normal json.loads.
+        self.append(self.event("token_count", rate_limits=limits, unrelated="x" * (1024 * 1024)))
+        observed = self.drain()
+        self.assertTrue(observed["history_verified"])
+        self.assertNotIn("PRIVATE-ACCOUNT", json.dumps(observed))
+        reading = parse_codex_observation(observed["local_rate_limits"], observed["local_rate_limits_at"], now=self.now + 1)
+        self.assertTrue(reading["available"])
+        self.assertEqual(reading["windows"], [])
+        self.assertEqual(reading["credits"], {"amount": -1.125, "unit": "credits", "observed_at": self.now})
+
+        self.append(self.event("token_count", timestamp=self.now + 1, rate_limits={
+            "limit_id": "codex", "primary": {"used_percent": 0, "window_minutes": 10080,
+                                               "resets_at": int(self.now + 600)}}))
+        observed = self.drain()
+        reading = parse_codex_observation(observed["local_rate_limits"], observed["local_rate_limits_at"], now=self.now + 1)
+        self.assertEqual(reading["windows"][0]["remaining_percent"], 100)
+        self.assertNotIn("credits", reading)
 
 
 if __name__ == "__main__":

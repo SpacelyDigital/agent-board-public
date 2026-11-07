@@ -233,7 +233,7 @@ func externalSupportSectionScript(visible: Bool) -> String {
     """
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     var window: NSWindow!
     var webView: WKWebView!
     var retryTimer: Timer?
@@ -381,6 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "Agent Board"
+        window.delegate = self
         window.minSize = NSSize(width: 540, height: 440)
         window.contentView = webView
         window.isReleasedWhenClosed = false
@@ -869,6 +870,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     @objc func toggleFullscreen() { window.toggleFullScreen(nil) }
+
+    func publishFullscreenState() {
+        guard !startingCollector, let url = webView.url,
+              url.scheme == boardURL.scheme, url.host == boardURL.host, url.port == boardURL.port,
+              url.path == "/" || url.path == "/index.html" else { return }
+        let active = window.styleMask.contains(.fullScreen) ? "true" : "false"
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('agentboard:fullscreenchange', { detail: \(active) }));", completionHandler: nil)
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) { publishFullscreenState() }
+    func windowDidExitFullScreen(_ notification: Notification) { publishFullscreenState() }
     @objc func toggleOnTop(_ sender: NSMenuItem) {
         let enabled = window.level != .floating
         window.level = enabled ? .floating : .normal
@@ -1477,6 +1489,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             return
         }
         if message.body as? String == "fullscreen" { toggleFullscreen() }
+        else if message.body as? String == "settings", let path = message.frameInfo.request.url?.path,
+                path == "/" || path == "/index.html" {
+            DispatchQueue.main.async { [weak self] in
+                guard NSApp.modalWindow == nil else { return }
+                self?.showSetup()
+            }
+        }
         else if message.body as? String == "theme:dark" { window.appearance = NSAppearance(named: .darkAqua) }
         else if message.body as? String == "theme:light" { window.appearance = NSAppearance(named: .aqua) }
     }
@@ -1492,7 +1511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 decisionHandler(.cancel)
                 return
             }
-            if navigationAction.navigationType == .linkActivated, isSupportURL(url) {
+            if navigationAction.navigationType == .linkActivated, isSupportURL(url) || isUsagePageLink(navigationAction) {
                 NSWorkspace.shared.open(url)
             }
             decisionHandler(.cancel)
@@ -1508,11 +1527,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             && url.query == nil && url.fragment == nil
     }
 
+    func isUsagePageLink(_ action: WKNavigationAction) -> Bool {
+        guard !runtime.storeDistribution, !runtime.sampleMode, action.sourceFrame.isMainFrame,
+              let source = action.sourceFrame.request.url, source.scheme == boardURL.scheme,
+              source.host == boardURL.host, source.port == boardURL.port,
+              source.path == "/" || source.path == "/index.html",
+              let destination = action.request.url?.absoluteString else { return false }
+        return destination == "https://claude.ai/settings/usage" || destination == "https://chatgpt.com/codex/settings/usage"
+    }
+
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if handleKoFiNavigation(navigationAction) { return nil }
         if navigationAction.navigationType == .linkActivated,
-           let url = navigationAction.request.url, isSupportURL(url) { NSWorkspace.shared.open(url) }
+           let url = navigationAction.request.url, isSupportURL(url) || isUsagePageLink(navigationAction) { NSWorkspace.shared.open(url) }
         return nil
     }
 
@@ -1527,6 +1555,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        publishFullscreenState()
         refreshExternalSupport()
     }
 

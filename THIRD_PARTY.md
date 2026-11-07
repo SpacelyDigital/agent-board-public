@@ -9,8 +9,10 @@ These notices apply to the named third-party components. They do not grant a
 license to Agent Board’s own source code, name, artwork or provider logos.
 Provider names and logos are addressed separately in `static/icons/README.md`.
 
-The alert sounds are original offline synthesis for Agent Board, not third-party
-recordings. Their generator and format are documented in `static/sounds/README.md`.
+Nine alert sounds are original offline synthesis for Agent Board. Fart uses an
+owner-supplied recording converted locally to metadata-free PCM. Their provenance,
+generator and format are documented in `static/sounds/README.md`; these software
+notices do not grant separate rights to those audio assets.
 
 ## Bundled components
 

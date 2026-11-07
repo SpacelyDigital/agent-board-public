@@ -48,6 +48,35 @@ class UsageTests(unittest.TestCase):
             with self.assertRaises(UsageUnavailable):
                 parse_codex_usage(response)
 
+    def test_codex_credits_are_independent_of_subscription_windows_and_earned_resets(self):
+        response = self.codex()
+        response["rateLimitResetCredits"] = {"availableCount": 4}
+        for balance, expected in (("0.000", 0), ("123.4567", 123.4567), ("-2.75", -2.75)):
+            response["rateLimits"]["credits"] = {"balance": balance, "hasCredits": expected > 0, "unlimited": False,
+                                                 "private": "do-not-export"}
+            with self.subTest(balance=balance):
+                self.assertEqual(parse_codex_usage(response, include_credits=True),
+                                 {"windows": [], "credits": {"amount": expected, "unit": "credits"}})
+        with self.assertRaises(UsageUnavailable):
+            parse_codex_usage(response)
+        response["rateLimitsByLimitId"] = {"codex": {"limitId": "codex"},
+                                            "other": response["rateLimits"]}
+        with self.assertRaises(UsageUnavailable):
+            parse_codex_usage(response, include_credits=True)
+
+    def test_codex_never_substitutes_zero_for_unreported_or_invalid_balance(self):
+        response = self.codex(primary={"usedPercent": 100, "windowDurationMins": 10080, "resetsAt": self.now + 100})
+        base = {"balance": "123", "hasCredits": True, "unlimited": False}
+        invalid = [None, {}, {**base, "unlimited": True}, {**base, "hasCredits": 1}]
+        invalid.extend({**base, "balance": value} for value in (
+            None, 0, "", "NaN", "inf", "12 dollars", "123.45678901234567890", "9007199254740992"))
+        for snapshot in invalid:
+            response["rateLimits"]["credits"] = snapshot
+            with self.subTest(snapshot=snapshot):
+                reading = parse_codex_usage(response, include_credits=True)
+                self.assertNotIn("credits", reading)
+                self.assertEqual(reading["windows"][0]["remaining_percent"], 0)
+
     def test_claude_real_zero_and_hundred_and_iso_resets(self):
         windows = parse_claude_usage({"five_hour": {"utilization": 0, "resets_at": "2027-01-15T12:00:00Z"}, "seven_day": {"utilization": 100, "resets_at": self.now}})
         self.assertEqual([row["remaining_percent"] for row in windows], [100, 0])
@@ -114,6 +143,27 @@ class UsageTests(unittest.TestCase):
         self.assertTrue(row["stale"])
         self.assertEqual(row["windows"][0]["remaining_percent"], 0)
 
+    def test_credit_only_observation_remains_separate_from_weekly_usage(self):
+        first_reading = iter([{"windows": [], "credits": {"amount": 0, "unit": "credits"}}])
+
+        def codex():
+            reading = next(first_reading, None)
+            if reading is None:
+                raise UsageUnavailable("Provider is unavailable.")
+            return reading
+
+        source = UsageSource({"codex": codex, "claude": lambda: [
+            {"id": "five_hour", "remaining_percent": 0, "reset_at": self.now - 1},
+            {"id": "weekly", "remaining_percent": 7, "reset_at": self.now + 1000},
+        ]})
+        claude, codex_first = source.scan(self.now)
+        self.assertEqual([window["id"] for window in claude["windows"]], ["weekly"])
+        self.assertFalse(claude["stale"])
+        self.assertEqual(codex_first["windows"], [])
+        self.assertEqual(codex_first["credits"], {"amount": 0, "unit": "credits", "observed_at": self.now, "stale": False})
+        _, failed = source.scan(self.now + 61)
+        self.assertEqual(failed["credits"], {**codex_first["credits"], "stale": True})
+
     def test_redirects_are_rejected_before_forwarding_bearer(self):
         with patch("usage_source._claude_token", return_value="fixture"), \
                 patch("usage_source.read_provider_json", side_effect=ProviderRequestError("redirect")):
@@ -165,11 +215,14 @@ for line in sys.stdin:
  with open(record,'a') as output: output.write(json.dumps(value['method'])+'\\n')
  if value.get('id')==1: print(json.dumps({{'id':1,'result':{{}}}}),flush=True)
  if value.get('id')==2:
-  print(json.dumps({{'id':2,'result':{{'rateLimits':{{'limitId':'codex','primary':{{'usedPercent':95,'windowDurationMins':10080,'resetsAt':{self.now + 1000}}}}}}}}}),flush=True)
+  rate_limits = {{'limitId':'codex','primary':{{'usedPercent':95,'windowDurationMins':10080,'resetsAt':{self.now + 1000}}},'credits':{{'balance':'0','hasCredits':False,'unlimited':False}}}}
+  print(json.dumps({{'id':2,'result':{{'rateLimits':rate_limits}}}}),flush=True)
 ''')
             executable.chmod(0o700)
             with patch("usage_source._codex_binary", return_value=str(executable)):
-                self.assertEqual(fetch_codex_usage()[0]["remaining_percent"], 5)
+                reading = fetch_codex_usage(include_credits=True)
+                self.assertEqual(reading["windows"][0]["remaining_percent"], 5)
+                self.assertEqual(reading["credits"], {"amount": 0, "unit": "credits"})
             self.assertEqual([json.loads(line) for line in record.read_text().splitlines()], ["initialize", "initialized", "account/rateLimits/read"])
 
     def test_account_child_does_not_inherit_telemetry_destinations(self):
