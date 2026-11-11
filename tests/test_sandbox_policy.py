@@ -141,7 +141,8 @@ class FrozenStoreEntryTests(unittest.TestCase):
         original_import = builtins.__import__
 
         def guarded_import(name, *args, **kwargs):
-            if name in {"certifi", "usage_source", "claude_project_source", "privacy_network", "process_reader"}:
+            if name in {"certifi", "usage_source", "claude_project_source", "claude_chat_source",
+                        "claude_chat_monitor", "chatgpt_reply_source", "privacy_network", "process_reader"}:
                 self.fail("A Store entry attempted a credential, network or direct helper import: " + name)
             return original_import(name, *args, **kwargs)
 
@@ -178,7 +179,7 @@ class FrozenStoreEntryTests(unittest.TestCase):
 
     def test_both_strategies_keep_all_direct_account_and_reader_helpers_blocked(self):
         for strategy in ("hidden", "us-external"):
-            for argument in ("--authorize-claude", "--read-projects", "--read-claude-usage",
+            for argument in ("--authorize-claude", "--read-projects", "--read-claude-usage", "--read-claude-chats",
                              "--reader-watchdog", "--reader-launch"):
                 with self.subTest(strategy=strategy, argument=argument), \
                         self.assertRaisesRegex(SystemExit, "account helper is unavailable"):
@@ -244,7 +245,7 @@ class SandboxPolicyTests(unittest.TestCase):
     def test_direct_helper_modes_fail_closed_before_credentials_or_network(self):
         entry = Path(__file__).resolve().parents[1] / "collector_entry.py"
         environment = dict(os.environ, AGENT_BOARD_SANDBOX="1")
-        for argument in ("--authorize-claude", "--read-projects", "--read-claude-usage"):
+        for argument in ("--authorize-claude", "--read-projects", "--read-claude-usage", "--read-claude-chats"):
             result = subprocess.run([sys.executable, str(entry), argument], env=environment,
                                     capture_output=True, text=True, timeout=5)
             self.assertNotEqual(result.returncode, 0)

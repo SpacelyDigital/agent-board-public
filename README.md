@@ -7,7 +7,7 @@ into dashboard history until new activity without changing the source chat.
 
 ## Current direct build, November 11, 2026
 
-The current local repair candidate is **0.2.5 build 52**, using the direct Mac
+The current local repair candidate is **0.2.5 build 54**, using the direct Mac
 app identifier `local.agentboard.display`. This is distinct from the historical
 App Store candidate below. It is not an App Store release or a newly notarized
 distribution.
@@ -25,16 +25,29 @@ The last successful reading remains visible with its age and retry state.
 Both providers use the same row sizing, including when one has an error.
 Claude project status observation times are kept separate from message times,
 so resuming work can clear an older attention state before a new reply appears.
-Ordinary Claude chat detection checks the nearest complete composer controls;
-long replies no longer require repeated overlapping window scans.
+Ordinary Claude chats use verified account metadata for both web and desktop
+activity. The board follows exact conversation IDs while the browser is in the
+background or the desktop app is showing another chat. Completion requires a
+new settled reply marker and message identity; a rename cannot create a reply
+alert. A private account-scoped checkpoint preserves Reviewed state across
+restarts and catches replies that finish between checks. Existing chat cards
+keep their identities and review state.
+
+Local transcript verification follows the verified content history when files
+are replaced or reindexed. An unchanged replacement cannot turn an old reviewed
+reply into a new alert; a changed transcript still requires verification.
 
 Recent ChatGPT conversations are discovered directly from OpenAI even when the
 desktop catalog has not refreshed. This is not an account-wide history export.
-A Ready event requires an observed active reply
-followed by confirmed completion. Very short replies can finish between checks.
+A Ready event uses the final assistant reply's verified identifier and
+completion state. The bounded latest-turn check also catches replies that
+finish between status polls. Title changes and old completed conversations do
+not create new reply alerts. Account-scoped completion markers survive restarts.
 Catalog-only chats remain accessible in Background with their status marked
-unavailable. Claude ordinary-chat monitoring depends on readable desktop-window
-metadata. Missing access remains visible rather than manufacturing completion.
+unavailable. Claude discovery reads up to 100 recent conversations per check.
+Both account readers require the corresponding account's existing sign-in on
+this Mac; they do not depend on the active browser tab or Accessibility access.
+Missing access remains visible rather than manufacturing completion.
 
 ## Historical shipping candidate, November 6, 2026
 

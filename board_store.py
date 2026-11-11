@@ -326,7 +326,10 @@ class BoardStore:
                 previous_extra = self._extra(previous["extra"]) if previous else {}
                 revision = source_extra.get("history_revision")
                 prior_revision = previous_extra.get("history_revision")
-                rebased = bool(revision and prior_revision
+                same_history_bytes = bool(revision and prior_revision
+                    and revision["size"] == prior_revision.get("size")
+                    and revision["sha256"] == prior_revision.get("sha256"))
+                rebased = bool(revision and prior_revision and not same_history_bytes
                                and revision["generation"] != prior_revision.get("generation"))
                 project_observed = source.get("project_status_observed_at")
                 current_project_work = bool(previous and obs["provider"] == "claude"

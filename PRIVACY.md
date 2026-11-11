@@ -100,6 +100,17 @@ App Store distribution; the sandbox proof build does not use it.
   analytics disabled and requests only its account rate limits. Codex uses its
   existing sign-in and handles its own provider connection. Agent Board does
   not start a chat or model turn.
+- **Claude chat status:** When regular Claude monitoring is enabled, the direct
+  app uses the existing Claude desktop session cookie in memory for bounded,
+  read-only requests to the fixed `https://claude.ai` origin. It verifies the
+  signed-in account before reading conversation metadata for that organization.
+  The reader retains exact conversation IDs, titles, activity and completion
+  markers. Conversation bodies, settings and artifact contents are not retained.
+  Redirects and proxy configuration are rejected, and TLS is validated. It does
+  not read browser cookie stores, refresh credentials or initiate a sign-in.
+  A private local checkpoint stores an opaque account scope and completion
+  markers so restarting the app does not repeat reviewed alerts. The Store
+  profile excludes this reader.
 - **ChatGPT reply status:** When regular ChatGPT monitoring is enabled, the
   direct app reads conversation IDs and titles from the desktop app's local
   catalog. It uses the existing Codex OAuth sign-in to make bounded HTTPS GET
@@ -107,8 +118,15 @@ App Store distribution; the sandbox proof build does not use it.
   It also requests the recent-conversation metadata list at the fixed
   `https://chatgpt.com/backend-api/conversations` route with expansion disabled,
   so chats created outside the desktop app can be found without reading messages.
-  These requests return reply status, not messages. Credentials remain in
-  memory and are sent only to that fixed OpenAI origin. Redirects and proxy
+  To verify a completed reply, it also requests the bounded latest-turn page
+  at `https://chatgpt.com/backend-api/conversations/<id>?num_turns=1`.
+  That response can include message content. The reader extracts only the
+  current assistant reply's identifier, timestamps and completion fields,
+  then discards the response. Message text is not saved or displayed by this
+  reader. A private account-scoped checkpoint keeps completion markers so
+  replies that finish between checks can be recognized without repeating
+  reviewed alerts. Credentials remain in memory and are sent only to that
+  fixed OpenAI origin. Redirects and proxy
   configuration are rejected. The reader does not refresh credentials or
   initiate a sign-in. The Store profile excludes this account reader.
 
@@ -145,11 +163,12 @@ login. It does not offer saved-account access. In the private direct-download pr
 usage, Claude cloud projects, notifications and launch at login are off by
 default. Change those choices with **Agent Board → Setup and Permissions**.
 The direct Mac app lets you include regular ChatGPT and Claude chats in
-**Setup and Permissions**. Both are optional. Claude window monitoring requires
-macOS Accessibility access and reads titles, chat links and activity indicators
-from open windows. ChatGPT monitoring uses its local catalog and the direct
-status requests described above. These readers do not copy messages or control
-the provider apps, and store board status on this Mac.
+**Setup and Permissions**. Both are optional. The direct app uses the account
+status requests described above for regular chats, whether used in a browser
+or the desktop app. It requires the corresponding account to be signed in on
+this Mac. Regular chat monitoring does not require Accessibility permission or
+a visible provider window. These readers do not control the provider apps and
+store board status on this Mac.
 
 If you choose **Allow Claude Account Access**, the app requests access to the
 named existing Claude Keychain item through macOS. Background credential reads
@@ -172,8 +191,9 @@ stores; removing the board database does not reset those display settings.
 
 ## Links and support
 
-Opening a chat switches to the corresponding installed provider app using its
-existing chat identifier. It does not submit a prompt or create a new chat.
+Opening a coding chat switches to its provider app. Opening a regular chat uses
+its exact conversation URL in the default browser. Neither submits a prompt or
+creates a new chat.
 
 The Store preview offers `mailto:Spacelydigital@gmail.com` for support. Clicking
 it opens the user's email app without a prefilled message or attachments.

@@ -239,9 +239,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var webView: WKWebView!
     var retryTimer: Timer?
     var pollTimer: Timer?
-    private let desktopChatQueue = DispatchQueue(label: "local.agentboard.desktop-chat-status", qos: .utility, attributes: .concurrent)
-    private var checkingDesktopChats: Set<String> = []
-    private var lastDesktopChatScanHadReadings: [String: Bool] = [:]
     var statusItem: NSStatusItem!
     var statusMenu: NSMenu!
     var csrfToken: String?
@@ -403,7 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         refreshPermission()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.poll()
-            self?.refreshDesktopChats()
         }
         RunLoop.main.add(pollTimer!, forMode: .common)
         if let error = startupModeError {
@@ -641,59 +637,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         content.userInfo = ["test": true]
         center.add(UNNotificationRequest(identifier: notificationPrefix + ".test", content: content, trigger: nil)) { [weak self] error in
             DispatchQueue.main.async { self?.lastDeliveryFailed = error != nil; self?.updateMenu() }
-        }
-    }
-
-    func refreshDesktopChats() {
-        guard !fixtureMode else { return }
-        refreshDesktopChats("Claude", file: \.claudeChatStatusFile, scan: ClaudeChatStatus.readWithDiagnostics)
-        refreshDesktopChats("ChatGPT", file: \.chatGPTChatStatusFile, scan: ChatGPTChatStatus.readWithDiagnostics)
-    }
-
-    private func refreshDesktopChats(_ provider: String, file keyPath: KeyPath<CollectorRuntime, URL?>,
-                                     scan: @escaping () -> ClaudeChatStatus.Scan) {
-        guard !checkingDesktopChats.contains(provider), let file = runtime[keyPath: keyPath] else { return }
-        checkingDesktopChats.insert(provider)
-        desktopChatQueue.async { [weak self] in
-            var data: Data?
-            var diagnostic: (summary: String, hasReadings: Bool)?
-            if ClaudeChatStatus.isTrusted {
-                let observation = scan()
-                let readings = observation.readings
-                diagnostic = (String(describing: observation.diagnostics), !readings.isEmpty)
-                var payload: [String: Any] = [
-                    "observed_at": Date().timeIntervalSince1970,
-                    "chats": readings.map { ["id": $0.id, "title": $0.title, "status": $0.status.rawValue] }
-                ]
-                payload["diagnostics"] = observation.diagnostics.counters
-                data = try? JSONSerialization.data(withJSONObject: payload)
-            }
-            let snapshot = data
-            let scanDiagnostic = diagnostic
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.checkingDesktopChats.remove(provider)
-                guard self.runtime[keyPath: keyPath] == file else { return }
-                if let scanDiagnostic, self.lastDesktopChatScanHadReadings[provider] != scanDiagnostic.hasReadings {
-                    self.lastDesktopChatScanHadReadings[provider] = scanDiagnostic.hasReadings
-                    NSLog("Agent Board %@ chat reader: %@", provider, scanDiagnostic.summary)
-                }
-                guard let snapshot, snapshot.count <= 64 * 1024 else {
-                    try? FileManager.default.removeItem(at: file)
-                    return
-                }
-                let temporary = file.appendingPathExtension(UUID().uuidString + ".tmp")
-                defer { try? FileManager.default.removeItem(at: temporary) }
-                do {
-                    try snapshot.write(to: temporary, options: .withoutOverwriting)
-                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
-                    if rename(temporary.path, file.path) != 0 {
-                        try? FileManager.default.removeItem(at: file)
-                    }
-                } catch {
-                    try? FileManager.default.removeItem(at: file)
-                }
-            }
         }
     }
 
@@ -963,7 +906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         content.spacing = 10
         let explanation = NSTextField(wrappingLabelWithString: runtime.sandboxed
             ? "Agent Board reads only the source folders you select below. Your board and preferences stay on this Mac. Usage meters use local provider readings, without reading saved sign-ins or contacting OpenAI or Anthropic. Claude usage requires the optional local exporter."
-            : "Agent Board reads Codex and Claude session files on this Mac to build your review queue. Your board and preferences stay on this Mac. No Agent Board account is required.\n\nThe optional account features below contact OpenAI or Anthropic using your existing sign-in. Routine background reads do not show Keychain prompts. You can allow Claude credential access with the button below. macOS may separately ask to allow access to another app’s files.")
+            : "Agent Board reads local Codex and Claude Code sessions to build your review queue. Your board and preferences stay on this Mac.\n\nOptional account features read usage, chat titles and reply status directly from OpenAI or Anthropic using your existing sign-in. Regular chat monitoring includes web and desktop conversations in the signed-in account. If Claude account access is unavailable, use Allow Claude Account Access below. Background reads do not show Keychain prompts.")
         explanation.preferredMaxLayoutWidth = 440
         explanation.widthAnchor.constraint(equalToConstant: 440).isActive = true
         content.addArrangedSubview(explanation)
@@ -981,18 +924,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if !runtime.sandboxed { content.addArrangedSubview(projects) }
         let ignoreClaudeChats = NSButton(checkboxWithTitle: "Ignore regular Claude chats", target: nil, action: nil)
         let ignoreChatGPTChats = NSButton(checkboxWithTitle: "Ignore regular ChatGPT chats", target: nil, action: nil)
-        let supportsDesktopChats = !runtime.sandboxed && !runtime.storeDistribution && !fixtureMode
-        if supportsDesktopChats {
+        let supportsAccountChats = !runtime.sandboxed && !runtime.storeDistribution && !fixtureMode
+        if supportsAccountChats {
             ignoreClaudeChats.state = defaults.bool(forKey: "claudeDesktopChatsEnabled") ? .off : .on
             ignoreChatGPTChats.state = defaults.bool(forKey: "chatGPTDesktopChatsEnabled") ? .off : .on
-            ignoreClaudeChats.toolTip = "Uncheck to monitor titles and reply status in open Claude chats using macOS Accessibility."
-            ignoreChatGPTChats.toolTip = "Uncheck to read ChatGPT’s local conversation list and check reply status directly with OpenAI using your existing sign-in."
+            ignoreClaudeChats.toolTip = "Uncheck to monitor web and desktop chats for the account signed in to Claude on this Mac."
+            ignoreChatGPTChats.toolTip = "Uncheck to monitor web and desktop chats for your existing OpenAI account on this Mac."
             content.addArrangedSubview(ignoreClaudeChats)
             content.addArrangedSubview(ignoreChatGPTChats)
-            if ignoreClaudeChats.state == .off && !ClaudeChatStatus.isTrusted {
-                let status = NSTextField(wrappingLabelWithString: "Allow Agent Board in System Settings → Privacy & Security → Accessibility to monitor regular Claude chats.")
-                content.addArrangedSubview(status)
-            }
         }
         if !runtime.sandboxed {
             content.addArrangedSubview(NSButton(title: "Allow Claude Account Access…", target: self, action: #selector(authorizeClaude)))
@@ -1087,20 +1026,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let networkChanged = defaults.bool(forKey: "accountUsageEnabled") != (usage.state == .on)
             || defaults.bool(forKey: "cloudProjectsEnabled") != (projects.state == .on)
-        let claudeChatsEnabled = supportsDesktopChats && ignoreClaudeChats.state == .off
-        let chatGPTChatsEnabled = supportsDesktopChats && ignoreChatGPTChats.state == .off
-        let enablingRegularChats = (claudeChatsEnabled && !defaults.bool(forKey: "claudeDesktopChatsEnabled"))
-            || (chatGPTChatsEnabled && !defaults.bool(forKey: "chatGPTDesktopChatsEnabled"))
-        let chatSourceChanged = supportsDesktopChats && (
+        let claudeChatsEnabled = supportsAccountChats && ignoreClaudeChats.state == .off
+        let chatGPTChatsEnabled = supportsAccountChats && ignoreChatGPTChats.state == .off
+        let chatSourceChanged = supportsAccountChats && (
             defaults.bool(forKey: "claudeDesktopChatsEnabled") != claudeChatsEnabled
             || defaults.bool(forKey: "chatGPTDesktopChatsEnabled") != chatGPTChatsEnabled
         )
         defaults.set(usage.state == .on, forKey: "accountUsageEnabled")
         defaults.set(projects.state == .on, forKey: "cloudProjectsEnabled")
-        if supportsDesktopChats {
+        if supportsAccountChats {
             defaults.set(claudeChatsEnabled, forKey: "claudeDesktopChatsEnabled")
             defaults.set(chatGPTChatsEnabled, forKey: "chatGPTDesktopChatsEnabled")
-            if enablingRegularChats && !ClaudeChatStatus.isTrusted { ClaudeChatStatus.requestPermission() }
         }
         defaults.set(true, forKey: "setupCompletedV1")
         if notifications.state == .on && !(notificationsEnabled && permissionAllowsNotifications) { toggleNotifications() }
@@ -1247,7 +1183,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         runtime.projectsEnabled = !runtime.sandboxed && defaults.bool(forKey: "cloudProjectsEnabled")
         runtime.claudeChatsEnabled = !runtime.sandboxed && !runtime.storeDistribution && defaults.bool(forKey: "claudeDesktopChatsEnabled")
         runtime.chatGPTChatsEnabled = !runtime.sandboxed && !runtime.storeDistribution && defaults.bool(forKey: "chatGPTDesktopChatsEnabled")
-        lastDesktopChatScanHadReadings.removeAll()
         csrfToken = nil
         collectorAvailable = false
         updateMenu()
@@ -1365,7 +1300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard runtime.hasBundle, !runtime.sandboxed, !fixtureMode, !authorizingClaude else { return }
         let explanation = NSAlert()
         explanation.messageText = "Allow access to your Claude sign-in?"
-        explanation.informativeText = "macOS may ask to let Agent Board read Claude’s saved sign-in from Keychain. This action only checks credential access. It does not send a request to Anthropic or modify your chats. If you decline, local chat tracking still works."
+        explanation.informativeText = "macOS may ask to let Agent Board read Claude’s saved sign-in from Keychain. This supports regular Claude chats, account usage and project status. This action only checks credential access; it does not send a request to Anthropic or modify your chats. If you decline, local Codex and Claude Code tracking still works."
         explanation.addButton(withTitle: "Continue")
         explanation.addButton(withTitle: "Cancel")
         guard explanation.runModal() == .alertFirstButtonReturn else { return }
@@ -1393,8 +1328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 let result = NSAlert()
                 result.messageText = success ? "Claude account access is available." : "Claude account access was not granted."
                 result.informativeText = success
-                    ? "You can enable account usage or Claude project status in Setup and Permissions."
-                    : "Confirm that Claude is installed and signed in, then try again. You can continue with local chat tracking."
+                    ? "You can enable regular Claude chats, account usage and Claude project status in Setup and Permissions."
+                    : "Regular Claude chats, account usage and project status require access to the account signed in to Claude. Confirm that Claude is installed and signed in, then try Allow Claude Account Access again. Local Codex and Claude Code tracking can continue."
                 result.addButton(withTitle: "OK")
                 result.runModal()
             }

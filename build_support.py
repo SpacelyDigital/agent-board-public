@@ -12,7 +12,8 @@ import re
 
 ROOT = Path(__file__).resolve().parent
 STORE_EXCLUDED_MODULES = ("usage_source", "claude_project_source", "privacy_network", "process_reader", "certifi",
-                          "chatgpt_source", "chatgpt_status", "chatgpt_monitor")
+                          "chatgpt_source", "chatgpt_status", "chatgpt_monitor", "chatgpt_reply_source",
+                          "claude_chat_source", "claude_chat_monitor")
 SANDBOX_APP_ENTITLEMENTS = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.files.user-selected.read-only": True,
@@ -283,6 +284,8 @@ def build_collector(signing_identity=None, *, sandboxed=False, build_root=None, 
             command.extend(["--exclude-module", module])
     else:
         command.extend(["--hidden-import", "usage_source", "--hidden-import", "claude_project_source",
+                        "--hidden-import", "claude_chat_source",
+                        "--hidden-import", "chatgpt_reply_source",
                         "--hidden-import", "privacy_network", "--collect-data", "certifi"])
     if signing_identity and channel == "direct":
         command.extend(["--codesign-identity", signing_identity])

@@ -43,6 +43,8 @@ else:
     from chatgpt_source import ChatGPTSource
     from chatgpt_status import ChatGPTStatusReader
     from chatgpt_monitor import ChatGPTConversationSource
+    from claude_chat_source import ClaudeChatAccountReader
+    from claude_chat_monitor import ClaudeChatConversationSource
     from usage_source import UsageSource
     from process_reader import stop_all_processes
 
@@ -1032,6 +1034,7 @@ def parse_arguments(argv=None):
     parser.add_argument("--claude-chat-status-file", type=Path, help="Private status file for an opted-in direct native launch.")
     parser.add_argument("--chatgpt-chat-status-file", type=Path, help="Private status file for opted-in ChatGPT chat monitoring.")
     parser.add_argument("--chatgpt-chats", action="store_true", help="Monitor exact ChatGPT conversation IDs using the existing sign-in.")
+    parser.add_argument("--claude-chats", action="store_true", help="Monitor Claude web and desktop conversations using the existing sign-in.")
     parser.add_argument("--sandbox", action="store_true", help="Require sandbox source grants and disable unsupported account helpers.")
     parser.add_argument("--store-profile", action="store_true", help="Use the sandboxed Mac App Store presentation.")
     parser.add_argument("--sample-mode", action="store_true", help="Show isolated built-in samples without accessing providers.")
@@ -1053,13 +1056,15 @@ def main():
     parser, args = parse_arguments()
     args.store_profile = args.store_profile or os.environ.get("AGENT_BOARD_STORE_PROFILE") == "1"
     args.sandbox = args.sandbox or args.store_profile or os.environ.get("AGENT_BOARD_SANDBOX") == "1"
-    if (args.claude_chat_status_file is not None or args.chatgpt_chat_status_file is not None or args.chatgpt_chats) and (
+    if (args.claude_chat_status_file is not None or args.chatgpt_chat_status_file is not None or args.chatgpt_chats or args.claude_chats) and (
             args.sandbox or args.store_profile or args.sample_mode
             or not args.parent_lifetime_stdin or not args.instance_id or args.access_token_file is None
             or any(root is not None for root in (args.codex_root, args.claude_root, args.claude_desktop_root))):
         parser.exit(2, "Desktop chat status requires a direct native launch.\n")
     if args.chatgpt_chats and args.chatgpt_chat_status_file is not None:
         parser.exit(2, "Choose one ChatGPT conversation source.\n")
+    if args.claude_chats and args.claude_chat_status_file is not None:
+        parser.exit(2, "Choose one Claude conversation source.\n")
     if args.sample_mode and (not args.sandbox or not args.store_profile or args.usage_enabled or args.projects_enabled
                              or getattr(sys, "frozen", False) and os.environ.get("AGENT_BOARD_STORE_PROFILE") != "1"):
         parser.exit(2, "Sample mode requires the Store sandbox with account helpers disabled.\n")
@@ -1131,7 +1136,12 @@ def main():
                 chatgpt_chat_source.allow_window_ids = False
             if args.chatgpt_chats:
                 validate_native_chat_launch(launch_files, args.instance_id)
-                chatgpt_chat_source = ChatGPTConversationSource(ChatGPTSource(), ChatGPTStatusReader(Path.home() / ".codex"))
+                chatgpt_chat_source = ChatGPTConversationSource(ChatGPTSource(), ChatGPTStatusReader(Path.home() / ".codex"),
+                    state_path=args.data_dir / "chatgpt-chat-baseline.json")
+            if args.claude_chats:
+                validate_native_chat_launch(launch_files, args.instance_id)
+                claude_chat_source = ClaudeChatConversationSource(ClaudeChatAccountReader(),
+                    state_path=args.data_dir / "claude-chat-baseline.json")
         except ValueError:
             parser.exit(2, "Desktop chat status requires this launch's private file.\n")
         LOG.info("startup phase=construct_readers")

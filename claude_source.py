@@ -873,7 +873,10 @@ class _TranscriptCursor:
         file_id = hashlib.sha256(repr(signature[:2]).encode()).hexdigest()
         digest = self.indexed_hash.hexdigest()
         prior = self.revision
-        same_prefix = (prior and prior["file_id"] == file_id and self.indexed_size >= prior["size"]
+        # The independently verified bytes establish continuity. Providers can
+        # atomically replace or relocate an unchanged file; its new inode alone
+        # must not grant authority to replay an older lifecycle over review.
+        same_prefix = (prior and self.indexed_size >= prior["size"]
                        and self.anchor_prefix == prior["sha256"])
         generation = prior["generation"] if same_prefix else hashlib.sha256(
             (file_id + ":" + str(self.indexed_size) + ":" + digest).encode()).hexdigest()

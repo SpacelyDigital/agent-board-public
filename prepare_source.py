@@ -13,7 +13,8 @@ TOP_LEVEL = (
     "APP_STORE_READINESS.md", "APP_STORE_PACKAGING.md", "ENGINEERING_CHECKPOINT.json",
     "MacApp.swift", "CollectorRuntime.swift", "ClaudeChatStatus.swift", "ChatGPTChatStatus.swift", "server.py", "board_store.py",
     "codex_source.py", "claude_source.py", "claude_project_source.py",
-    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py",
+    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py", "chatgpt_reply_source.py",
+    "claude_chat_source.py", "claude_chat_monitor.py",
     "chat_links.py", "usage_source.py", "collector_entry.py", "install.py",
     "privacy_network.py", "source_access.py", "sandbox_sources.py",
     "entitlements/sandbox-app.plist", "entitlements/sandbox-helper.plist", "entitlements/sandbox-collector-policy.json",
@@ -49,6 +50,7 @@ TESTS = (
     "test_alert_sounds.py", "native_alert_sounds_smoke.py", "alert_sounds_ui_smoke.cjs",
     "test_claude_desktop_chats.py", "ClaudeChatStatusProof.swift", "ChatGPTChatStatusProof.swift",
     "test_desktop_identity_migration.py", "test_chatgpt_catalog.py", "test_chatgpt_status.py", "test_chatgpt_monitor.py",
+    "test_claude_chat_source.py", "test_claude_chat_monitor.py", "test_chatgpt_reply_source.py",
 )
 SENSITIVE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"

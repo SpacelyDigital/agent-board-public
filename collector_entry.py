@@ -67,9 +67,10 @@ def main():
     helper = {
         "--read-claude-usage": "usage_source",
         "--read-projects": "claude_project_source",
+        "--read-claude-chats": "claude_chat_source",
     }
     if os.environ.get("AGENT_BOARD_SANDBOX") == "1" and sys.argv[1:2] in (
-            ["--read-claude-usage"], ["--read-projects"], ["--authorize-claude"],
+            ["--read-claude-usage"], ["--read-projects"], ["--read-claude-chats"], ["--authorize-claude"],
             ["--reader-watchdog"], ["--reader-launch"]):
         # A sandbox build must never fall back to saved credentials or spawn
         # a provider executable, even if a helper mode is invoked directly.

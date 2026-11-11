@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from server import Monitor, parse_arguments, validate_native_chat_launch
+from server import Monitor, main, parse_arguments, validate_native_chat_launch
 
 
 class SourceOptInTests(unittest.TestCase):
@@ -29,6 +29,10 @@ class SourceOptInTests(unittest.TestCase):
         self.assertFalse(args.usage_enabled)
         self.assertFalse(args.projects_enabled)
         self.assertFalse(args.chatgpt_chats)
+        self.assertFalse(args.claude_chats)
+        _, chats = parse_arguments(["--claude-chats", "--chatgpt-chats"])
+        self.assertTrue(chats.claude_chats)
+        self.assertTrue(chats.chatgpt_chats)
         _, args = parse_arguments(["--usage", "--projects"])
         self.assertTrue(args.usage_enabled)
         self.assertTrue(args.projects_enabled)
@@ -45,11 +49,22 @@ class SourceOptInTests(unittest.TestCase):
             stack.enter_context(patch("server.ClaudeSource"))
             usage = stack.enter_context(patch("server.UsageSource", side_effect=AssertionError("Implicit credential access")))
             projects = stack.enter_context(patch("server.ClaudeProjectSource", side_effect=AssertionError("Implicit account request")))
+            chats = stack.enter_context(patch("server.ClaudeChatAccountReader", side_effect=AssertionError("Implicit chat account access")))
             monitor = Monitor(Path(folder))
             self.assertIsNone(monitor.usage_source)
             self.assertIsNone(monitor.project_source)
             usage.assert_not_called()
             projects.assert_not_called()
+            chats.assert_not_called()
+
+    def test_account_chats_reject_untrusted_launch_before_reading_credentials(self):
+        for flags in (["--claude-chats"], ["--claude-chats", "--sandbox"],
+                      ["--claude-chats", "--sample-mode"], ["--claude-chats", "--codex-root", "/tmp/fixture"]):
+            with self.subTest(flags=flags), patch("sys.argv", ["server.py", *flags]), \
+                    patch("server.ClaudeChatAccountReader", side_effect=AssertionError("Credential read before launch validation")), \
+                    redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                main()
+            self.assertEqual(error.exception.code, 2)
 
     def test_explicit_monitor_choices_construct_only_selected_account_readers(self):
         for allow_usage, allow_projects in ((True, False), (False, True), (True, True)):

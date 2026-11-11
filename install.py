@@ -22,7 +22,8 @@ INSTALLED_APP = Path("/Applications/Agent Board.app")
 ALERT_SOUND_IDS = ("soft-ding", "chime", "bell", "glass", "marimba", "arcade", "radar", "space-signal", "pop", "fart")
 RUNTIME_FILES = (
     "server.py", "board_store.py", "codex_source.py", "claude_source.py", "claude_project_source.py", "chat_links.py", "usage_source.py", "process_reader.py",
-    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py",
+    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py", "chatgpt_reply_source.py",
+    "claude_chat_source.py", "claude_chat_monitor.py",
     "privacy_network.py", "sandbox_sources.py", "source_access.py", "local_quota.py",
     "static/index.html", "static/app.js", "static/style.css", "static/palettes.css",
     "static/themes.js", "static/effects.js", "static/effects.css",

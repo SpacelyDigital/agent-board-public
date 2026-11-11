@@ -1,32 +1,41 @@
 {
   "version": "0.2.5",
-  "build": 52,
-  "source_manifest_sha256": "7855b33d191e020de8db433c95c8245df5080441cd3a0d9a0fba8e3b101e5604",
-  "source_files": 193,
-  "automated_tests": 522,
-  "usage_layout_checks": 16,
-  "usage_ui_phases": 10,
-  "native_proofs": [
-    "Claude direct",
-    "ChatGPT direct",
-    "Claude Store"
-  ],
+  "build": 54,
+  "source_manifest_sha256": "9930887cf6e80479aa2f86777a553cf5a828105c1b96b8f52d3b491304a3174c",
+  "source_files": 199,
+  "automated_tests": 603,
   "signing": "existing Developer ID; local build without new notarization",
   "executables": {
-    "Contents/MacOS/AgentBoard": "4b90e4923c6ed27fc29d9295bb2ff34a72298586ac4909827ecaee055be4b428",
-    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "5650fc31a2dc0d541ec6bac175b583468bbee54adea7efaf7d6540bc22250f13"
+    "Contents/MacOS/AgentBoard": "4d05f947525d76d69027ef56256d8d4957a9212dc5ecee297cf4830062194fd0",
+    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "a1c7051e7641ece1c3ea0dcd9df64d57f8e6301764fdf65f9a599b7d938e3133"
   },
-  "zip_sha256": "defc0e7a1e61aed04293f2e21f0d2b681bade0f94eae118465bfb33f056e5020",
+  "zip_sha256": "a0548983f348a30fc6ef38cf2a7af439ce7b7f7d7899594aa4b738514255adae",
   "verified_on": "2026-11-11",
   "live_workflows": {
-    "claude_chat": "One Cooking card became Ready; Open reached the exact chat; Reviewed persisted after app restart.",
-    "chatgpt": "One Cooking card became Ready; Open reached the exact chat; Reviewed persisted after app restart.",
-    "usage": "Both providers returned fresh readings with whole numbers; provider rows align in healthy and rate-limited states."
+    "claude_desktop": "A real desktop reply produced one Cooking card while Claude desktop showed its Code section, then became Ready. Open reached the exact web conversation.",
+    "claude_web": "A short real reply finished in a background browser tab and produced one Ready card with the same conversation identity.",
+    "chatgpt_web": "A short real web reply produced one Ready card without requiring an observed stream. Open reached the exact conversation.",
+    "chatgpt_desktop": "The new bounded reader verified a terminal reply from a user-created desktop test chat. A second post-install desktop action was reported but did not appear in the current account metadata; its full live workflow is unverified.",
+    "review_restart": "The Claude and ChatGPT web test cards remained Reviewed after a normal app quit and reopen. Renaming the Claude test did not produce another reply alert.",
+    "usage": "Both providers displayed fresh readings and whole numbers with aligned rows in the installed app.",
+    "final_build": "Build54 started with every source connected, fresh whole-number usage, saved test reviews, and no re-alert of the verified unchanged transcript.",
+    "review_recovery": "Two acknowledgments were restored only where the pre-update backup proved unchanged reviewed transcript content and unchanged owner review state. A repeat read-only audit after restart matched zero unresolved rows."
   },
   "limitations": [
-    "Very short ChatGPT replies can finish between status checks.",
-    "Ordinary Claude chat monitoring requires readable desktop-window controls.",
-    "Provider rate limits can temporarily delay usage readings. The adaptive polling interval is retained for the current app run.",
-    "This local Developer ID build has no new notarization and is separate from the App Store candidate."
+    "Account readers require the matching existing sign-in on this Mac and use provider interfaces that can change.",
+    "Discovery is bounded to 100 recent conversations per provider; ChatGPT status checks are bounded to 256 identities. Latest-turn reads are limited to 3 MiB.",
+    "If a first-seen ChatGPT reply began before monitoring and has no provider finish timestamp or prior reply baseline, completion can remain unconfirmed.",
+    "Provider errors and rate limits can temporarily delay status or usage readings.",
+    "This Developer ID engineering build has no new notarization and is separate from the App Store candidate."
+  ],
+  "account_workflows_verified_on_build": 53,
+  "account_monitor_files_unchanged_in_final_build": [
+    "claude_chat_source.py",
+    "claude_chat_monitor.py",
+    "chatgpt_source.py",
+    "chatgpt_status.py",
+    "chatgpt_reply_source.py",
+    "chatgpt_monitor.py",
+    "MacApp.swift"
   ]
 }

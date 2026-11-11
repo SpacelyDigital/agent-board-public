@@ -1,4 +1,4 @@
-"""Bounded, metadata-only reply status reads directly from the signed-in provider.
+"""Bounded status and recent-reply reads directly from the signed-in provider.
 
 ``ChatGPTStatusReader(codex_root).scan(ids, now=None)`` returns a dict keyed by
 canonical conversation UUID. Each value contains ``status`` (the provider enum),
@@ -11,6 +11,12 @@ conversations and fresh activity hints are checked next, then those least recent
 attempted. Every fourth status dispatch reserves a slot for work waiting 30 seconds;
 input order breaks ties. COMPLETE is only an observation, never a new completion
 event: callers must preserve their own conversation/event baseline.
+
+An explicit ``reply_candidates={id: metadata_revision}`` opts recent/changed
+conversations into the latest-turn reader after COMPLETE. Its response may
+contain text, but only a current terminal assistant marker leaves that reader.
+``completed_replies()`` exposes fresh markers; ``ack_completed_replies()`` is
+called after durable application so a transient consumer failure remains retryable.
 """
 from __future__ import annotations
 
@@ -33,6 +39,7 @@ import urllib.request
 import uuid
 
 from privacy_network import ProviderRequestError, RejectRedirects
+from chatgpt_reply_source import read_last_reply
 
 _STATUSES = frozenset({"IS_STREAMING", "COMPLETE", "FAILURE", "UNAVAILABLE"})
 _ORIGIN = "https://chatgpt.com"
@@ -173,10 +180,11 @@ def read_conversation_metadata(token: str, account_id: str | None, *, timeout: f
 
 class ChatGPTStatusReader:
     def __init__(self, codex_root: Path | str, *, request=read_stream_status,
-                 metadata_request=read_conversation_metadata, clock=time.time):
+                 metadata_request=read_conversation_metadata, reply_request=read_last_reply, clock=time.time):
         self.codex_root = Path(codex_root)
         self._request = request
         self._metadata_request = metadata_request
+        self._reply_request = reply_request
         self._clock = clock
         self._lock = threading.Lock()
         self._credentials: tuple[str, str | None] | None = None
@@ -186,6 +194,12 @@ class ChatGPTStatusReader:
         self._cache: dict[str, dict] = {}
         self._discovered: dict[str, dict] = {}
         self._discovered_at: float | None = None
+        self._reply_candidates: dict[str, float] = {}
+        self._replies: dict[str, dict] = {}
+        self._reply_revisions: dict[str, float] = {}
+        self._reply_next_poll: dict[str, float] = {}
+        self._reply_acks: dict[str, str] = {}
+        self._reply_empty_attempts: dict[str, int] = {}
         self._last_attempt: dict[str, float] = {}
         self._first_requested: dict[str, float] = {}
         self._next_poll: dict[str, float] = {}
@@ -196,7 +210,8 @@ class ChatGPTStatusReader:
         self._backoff_until = 0.0
         self._closed = False
 
-    def scan(self, conversation_ids: Iterable[str], now: float | None = None) -> dict[str, dict]:
+    def scan(self, conversation_ids: Iterable[str], now: float | None = None,
+             *, reply_candidates: dict[str, float] | None = None) -> dict[str, dict]:
         now = self._clock() if now is None else now
         ids = list(dict.fromkeys(identifier for value in itertools.islice(conversation_ids, 512)
                                  if (identifier := _canonical_id(value)) is not None))[:256]
@@ -211,6 +226,12 @@ class ChatGPTStatusReader:
                 self._cache.clear()
                 self._discovered.clear()
                 self._discovered_at = None
+                self._reply_candidates.clear()
+                self._replies.clear()
+                self._reply_revisions.clear()
+                self._reply_next_poll.clear()
+                self._reply_acks.clear()
+                self._reply_empty_attempts.clear()
                 self._last_attempt.clear()
                 self._first_requested.clear()
                 self._next_poll.clear()
@@ -228,9 +249,22 @@ class ChatGPTStatusReader:
                                      "error": "credentials", "http_status": None} for identifier in ids}
             # Drop deselected work, and retain only the bounded requested cache.
             wanted = set(ids) | {_CATALOG_JOB}
-            for mapping in [self._cache, self._last_attempt, self._first_requested, self._next_poll]:
+            for mapping in [self._cache, self._last_attempt, self._first_requested, self._next_poll,
+                            self._replies, self._reply_revisions, self._reply_next_poll,
+                            self._reply_acks, self._reply_empty_attempts]:
                 for identifier in mapping.keys() - wanted:
                     del mapping[identifier]
+            candidates = {identifier: revision for identifier, revision in (reply_candidates or {}).items()
+                          if identifier in wanted and identifier != _CATALOG_JOB
+                          and type(revision) in (int, float) and math.isfinite(revision) and 0 < revision <= now + 2}
+            for identifier, revision in candidates.items():
+                if self._reply_candidates.get(identifier) != revision:
+                    self._replies.pop(identifier, None)
+                    self._reply_revisions.pop(identifier, None)
+                    self._reply_next_poll.pop(identifier, None)
+                    self._reply_acks.pop(identifier, None)
+                    self._reply_empty_attempts.pop(identifier, None)
+            self._reply_candidates = candidates
             for identifier in ids:
                 self._first_requested.setdefault(identifier, now)
             order = {identifier: index for index, identifier in enumerate(ids)}
@@ -246,9 +280,11 @@ class ChatGPTStatusReader:
             due = [identifier for identifier in ids
                    if (self._generation, identifier) not in self._inflight
                    and (self._next_poll.get(identifier, 0) <= now or
+                        self._reply_due(identifier, now) and self._cache.get(identifier, {}).get("status") == "COMPLETE" or
                         identifier in hints and self._cache.get(identifier, {}).get("status") in {"COMPLETE", "FAILURE"})]
             due.sort(key=lambda identifier: (
-                0 if self._cache.get(identifier, {}).get("status") == "IS_STREAMING" else 1 if identifier in hints else 2,
+                0 if self._cache.get(identifier, {}).get("status") == "IS_STREAMING"
+                else 1 if identifier in hints or self._reply_due(identifier, now) else 2,
                 self._last_attempt.get(identifier, 0), order[identifier]))
             if ((self._generation, _CATALOG_JOB) not in self._inflight
                     and self._next_poll.get(_CATALOG_JOB, 0) <= now):
@@ -264,6 +300,38 @@ class ChatGPTStatusReader:
         now = self._clock() if now is None else now
         with self._lock:
             return self._discovery_fresh(now)
+
+    def _reply_due(self, identifier: str, now: float) -> bool:
+        revision = self._reply_candidates.get(identifier)
+        if revision is None or self._reply_next_poll.get(identifier, 0) > now:
+            return False
+        if self._reply_revisions.get(identifier) != revision:
+            return True
+        reading = self._replies.get(identifier)
+        return reading is not None and self._reply_acks.get(identifier) != reading["reply_id"]
+
+    def ack_completed_replies(self, markers: dict[str, dict]) -> None:
+        """Consume only markers the caller has durably applied and checkpointed."""
+        with self._lock:
+            for identifier, marker in markers.items():
+                reading = self._replies.get(identifier)
+                if (reading is not None and isinstance(marker, dict)
+                        and all(reading[field] == marker.get(field) for field in ("reply_id", "revision", "account_scope"))
+                        and reading["revision"] == self._reply_candidates.get(identifier)
+                        and reading["account_scope"] == self._account_identity):
+                    self._reply_acks[identifier] = reading["reply_id"]
+
+    def completed_replies(self, now: float | None = None) -> dict[str, dict]:
+        """Fresh allowlisted current-leaf markers, scoped to the signed-in account."""
+        now = self._clock() if now is None else now
+        with self._lock:
+            if self._closed or self._credentials is None:
+                return {}
+            return {identifier: {**reading, "fresh": True} for identifier, reading in self._replies.items()
+                    if 0 <= now - reading["observed_at"] <= 15
+                    and self._reply_candidates.get(identifier) == reading["revision"]
+                    and reading["account_scope"] == self._account_identity
+                    and self._cache.get(identifier, {}).get("status") == "COMPLETE"}
 
     def account_identity(self) -> str | None:
         """Opaque account scope, excluding tokens and retained through a brief outage."""
@@ -303,8 +371,11 @@ class ChatGPTStatusReader:
                     credentials = self._credentials
                     self._inflight.add((generation, identifier))
                     self._last_attempt[identifier] = self._clock()
+                    reply_revision = (self._reply_candidates.get(identifier)
+                                      if self._reply_due(identifier, self._clock()) else None)
                 status, error, http_status = "UNAVAILABLE", None, None
                 metadata = None
+                reply, reply_error, reply_http_status = None, None, None
                 try:
                     if identifier == _CATALOG_JOB:
                         metadata = self._metadata_request(*credentials)
@@ -314,6 +385,15 @@ class ChatGPTStatusReader:
                         status = self._request(identifier, *credentials)
                         if status not in _STATUSES:
                             raise ProviderRequestError("response")
+                        if status == "COMPLETE" and reply_revision is not None:
+                            try:
+                                reply = self._reply_request(identifier, *credentials)
+                                if reply is not None and not self._valid_reply(reply):
+                                    raise ProviderRequestError("response")
+                            except ProviderRequestError as failure:
+                                reply_error, reply_http_status = failure.reason, failure.status
+                            except Exception:
+                                reply_error = "unavailable"
                 except ProviderRequestError as failure:
                     status, error, http_status = "UNAVAILABLE", failure.reason, failure.status
                 except Exception:
@@ -332,13 +412,45 @@ class ChatGPTStatusReader:
                         self._cache[identifier] = {"status": status, "observed_at": observed_at,
                                                    "error": error, "http_status": http_status}
                         interval = 4 if status == "IS_STREAMING" else 12 if status in {"COMPLETE", "FAILURE"} else 30
+                        if status == "IS_STREAMING":
+                            self._replies.pop(identifier, None)
+                            self._reply_revisions.pop(identifier, None)
+                            self._reply_next_poll.pop(identifier, None)
+                            self._reply_acks.pop(identifier, None)
+                            self._reply_empty_attempts.pop(identifier, None)
+                        elif status == "COMPLETE" and reply_revision is not None and self._reply_candidates.get(identifier) == reply_revision:
+                            if reply_error is None and reply is not None:
+                                self._replies[identifier] = {"reply_id": reply["reply_id"],
+                                    "created_at": reply["created_at"], "updated_at": reply["updated_at"],
+                                    "observed_at": observed_at, "revision": reply_revision,
+                                    "account_scope": self._account_identity}
+                                self._reply_revisions[identifier] = reply_revision
+                                self._reply_empty_attempts.pop(identifier, None)
+                            else:
+                                self._replies.pop(identifier, None)
+                                if reply_error is None:
+                                    count = self._reply_empty_attempts.get(identifier, 0) + 1
+                                    self._reply_empty_attempts[identifier] = count
+                                    if count >= 3:
+                                        self._reply_revisions[identifier] = reply_revision
+                            self._reply_next_poll[identifier] = observed_at + 30
                     self._next_poll[identifier] = observed_at + interval
-                    if http_status in {401, 429} or (http_status == 403 and identifier == _CATALOG_JOB):
-                        self._backoff_until = observed_at + (60 if http_status == 429 else 30)
+                    if http_status in {401, 429} or (http_status == 403 and identifier == _CATALOG_JOB) or reply_http_status in {401, 429}:
+                        self._backoff_until = observed_at + (60 if 429 in {http_status, reply_http_status} else 30)
                         self._queue.clear()
         finally:
             with self._lock:
                 self._workers -= 1
+
+    def _valid_reply(self, reply) -> bool:
+        return (isinstance(reply, dict) and isinstance(reply.get("reply_id"), str)
+                and "updated_at" in reply
+                and re.fullmatch(r"[0-9a-f]{64}", reply["reply_id"]) is not None
+                and type(reply.get("created_at")) in (int, float) and math.isfinite(reply["created_at"])
+                and 0 < reply["created_at"] <= self._clock() + 2
+                and (reply.get("updated_at") is None or (
+                    type(reply["updated_at"]) in (int, float) and math.isfinite(reply["updated_at"])
+                    and reply["created_at"] <= reply["updated_at"] <= self._clock() + 2)))
 
     def close(self) -> None:
         with self._lock:
@@ -347,4 +459,10 @@ class ChatGPTStatusReader:
             self._cache.clear()
             self._discovered.clear()
             self._discovered_at = None
+            self._replies.clear()
+            self._reply_candidates.clear()
+            self._reply_revisions.clear()
+            self._reply_next_poll.clear()
+            self._reply_acks.clear()
+            self._reply_empty_attempts.clear()
             self._credentials = None

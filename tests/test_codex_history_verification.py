@@ -139,6 +139,32 @@ class CodexHistoryVerificationTests(unittest.TestCase):
         cold_result = self.drain(cold)
         self.assertEqual(cold_result["history_revision"], rewritten["history_revision"])
 
+    def test_identical_atomic_replacement_keeps_generation_warm_and_cold(self):
+        previous = self.ready()
+        replacement = self.path.with_suffix('.replacement')
+        replacement.write_bytes(self.path.read_bytes())
+        replacement.replace(self.path)
+        current = self.drain()
+        self.assertNotEqual(current['history_revision']['file_id'], previous['history_revision']['file_id'])
+        self.assertEqual(current['history_revision']['generation'], previous['history_revision']['generation'])
+        self.assertEqual(current['event_id'], previous['event_id'])
+        cold = CodexSource(self.root, confine_paths=True)
+        cold.revision_lookup = lambda identifier: previous['history_revision']
+        self.assertEqual(self.drain(cold)['history_revision'], current['history_revision'])
+
+    def test_replacement_with_verified_identical_prefix_and_append_keeps_generation(self):
+        previous = self.ready()
+        replacement = self.path.with_suffix('.replacement')
+        replacement.write_bytes(self.path.read_bytes())
+        replacement.replace(self.path)
+        self.append(self.event('task_complete', 'older-turn', timestamp=self.now - 50))
+        current = self.drain()
+        self.assertNotEqual(current['history_revision']['sha256'], previous['history_revision']['sha256'])
+        self.assertEqual(current['history_revision']['generation'], previous['history_revision']['generation'])
+        cold = CodexSource(self.root, confine_paths=True)
+        cold.revision_lookup = lambda identifier: previous['history_revision']
+        self.assertEqual(self.drain(cold)['history_revision'], current['history_revision'])
+
     def test_more_than_tail_limit_of_new_data_cannot_hide_new_turn(self):
         self.ready()
         self.append(self.event("task_started", "turn-2"), {"type": "response_item", "timestamp": self.now,
