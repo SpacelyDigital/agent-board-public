@@ -1,39 +1,9 @@
 # Mac distribution
 
-The current local Store candidate is **0.2.5 build 28**, Apple Distribution
-signed with a Mac Installer Distribution package, the profile-free unrestricted
-route and explicit `us-external` optional support. Its builder and independent
-exact-package checks passed. The package is 10,839,062 bytes with SHA-256
-`ef254f3a65dd67be2b96f1288b4c2cac229f36f4516f00697f587cb9bb85bfcb`.
-The bounded actual native snapshot ends at `2026-11-06T09:46:10.517577+00:00`.
-The macOS 26 Installer reported success and the installed Info.plist view showed version
-0.2.5 build 28. Initial waiting continued beyond the old timeout; after owner
-consent, the connected live board recovered without Retry or source reselection.
-The GUI does not establish child/token/generation identity.
-
-Ten recorded Preview-button actions produced no visible error. Fart with Sound
-on persisted across normal Quit and Finder reopen. Generic test notifications
-were visible after explicit sends with Sound on and Sound off. Physical sound,
-audible mute and the selected notification sound file were not verified;
-actual build 28 provider transitions, login/restart, macOS 13 and full native
-acceptance remain open. No build 28 Transporter Verify/Deliver, Apple upload,
-TestFlight, notarization, App Review or release is established. Submission
-readiness is false. The owner approved a free launch; donations unlock nothing.
-
-All 427 combined source tests passed with no failures, errors or skips. The
-package audit checked 118 app entries, nine compiled Python modules, 33 mapped
-helper resources and ten main PCM sounds against 96 frozen runtime/build inputs.
-The frozen source has 180 selected files plus its generated manifest. These
-source/static checks do not replace installed user workflows. See
-[APP_STORE_READINESS.md](APP_STORE_READINESS.md) for exact scope and remaining gates.
-
-Build 28 keeps initial scanning active after the original health-attempt limit,
-with a waiting state and monotonic 300-second deadline. The deadline cannot
-forcibly interrupt synchronous native calls. Controlled delay checks passed;
-complete macOS permission recovery testing remains open. The ten local sound choices
-use matching source/helper/main WAV bytes, the existing preference bridge and
-Sound off for native/web mute. WebKit checks passed; native audibility remains
-an installed-build gate.
+The preserved Store engineering candidate is **0.2.5 build 25** with explicit
+US-only optional support. It is an ad-hoc signed Apple-silicon app and unsigned
+installer, not a final Store package. Submission readiness is false. The owner
+approved a free launch; optional donations do not unlock features.
 
 ## Preserved build 25 evidence
 
@@ -59,10 +29,9 @@ presentation persistence, Sample-review/return and window-reopen flows on macOS 
 Connected/full minimum-OS and signed-distribution workflows remain unverified;
 Intel support is not claimed.
 
-## Historical build 27 shipping preparation
+## Shipping preparation, November 6, 2026
 
-The following snapshot ends on November 6, 2026 at 06:17 UTC and describes
-build 27 only.
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
 
 Build 27 uses the registered release App ID
 `com.spacelydigital.agentboard`; application/installer signing and builder package
@@ -77,11 +46,9 @@ reached Setup and the Codex read-only picker, with no grant yet. No provider,
 full minimum-OS, overall processing/compliance or App Review pass
 is claimed; SDK/export and remaining listing fields stay open.
 See [packaging status](APP_STORE_PACKAGING.md) and
-[release gates](APP_STORE_READINESS.md). Build 25 evidence above remains separate. A later actual build 27 login/permission
-timeout recovered after late macOS consent and manual Retry. Its cause was not
-traced; it remains a historical failure rather than build 28 native proof.
+[release gates](APP_STORE_READINESS.md). Build 25 evidence above remains separate.
 
-## Preserved local preview recipe
+## Local preview build
 
 Use the pinned portable build environment, then select a new output directory:
 
@@ -162,13 +129,12 @@ closed first-phase snapshot; later validation does not rewrite them.
 
 The preserved public build 25 source snapshot used that reviewed clean build 25
 source with publication-time nonruntime documentation. That documentation-only
-scope does not describe later build 27 or 28 runtime changes. It includes no historical
+scope does not describe later build 27 runtime changes. It includes no historical
 private repository ancestry. Publication of source is not an App Store release or a new
 license grant. No open-source license has been selected for Agent Board itself.
 Keep `THIRD_PARTY.md`, `licenses/` and provider-icon notices unchanged.
 
 Public source/artifact preparation must exclude recipient chats, account files,
 bookmarks, credentials, keys, guest files, raw logs, screenshots and private QA.
-A build 28 source export, archive and remote backup have not been established by
-this checkpoint. Regenerate the clean source manifest/archive only after approved
-documentation changes; do not reuse the older private source ZIP as current.
+Regenerate the public source manifest/archive after approved documentation
+changes; do not reuse the older private source ZIP as if its bytes were current.

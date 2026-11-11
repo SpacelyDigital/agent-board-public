@@ -112,7 +112,8 @@ struct AttentionChat {
               status == "ready" || status == "needs_you" else { return nil }
         self.key = key
         self.title = value["title"] as? String ?? "Conversation"
-        self.provider = value["provider"] as? String == "codex" ? "Codex" : "Claude"
+        let providerNames = ["codex": "Codex", "claude": "Claude", "chatgpt": "ChatGPT"]
+        self.provider = providerNames[value["provider"] as? String ?? ""] ?? "The agent"
         self.status = status
         self.eventID = value["event_id"] as? String ?? ""
         let sample = sampleMode && value["sample"] as? Bool == true
@@ -238,6 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var webView: WKWebView!
     var retryTimer: Timer?
     var pollTimer: Timer?
+    private let desktopChatQueue = DispatchQueue(label: "local.agentboard.desktop-chat-status", qos: .utility, attributes: .concurrent)
+    private var checkingDesktopChats: Set<String> = []
+    private var lastDesktopChatScanHadReadings: [String: Bool] = [:]
     var statusItem: NSStatusItem!
     var statusMenu: NSMenu!
     var csrfToken: String?
@@ -397,7 +401,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         showBoard()
         refreshPermission()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.poll() }
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.poll()
+            self?.refreshDesktopChats()
+        }
         RunLoop.main.add(pollTimer!, forMode: .common)
         if let error = startupModeError {
             DispatchQueue.main.async { [weak self] in self?.presentStartupError(error) }
@@ -634,6 +641,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         content.userInfo = ["test": true]
         center.add(UNNotificationRequest(identifier: notificationPrefix + ".test", content: content, trigger: nil)) { [weak self] error in
             DispatchQueue.main.async { self?.lastDeliveryFailed = error != nil; self?.updateMenu() }
+        }
+    }
+
+    func refreshDesktopChats() {
+        guard !fixtureMode else { return }
+        refreshDesktopChats("Claude", file: \.claudeChatStatusFile, scan: ClaudeChatStatus.readWithDiagnostics)
+        refreshDesktopChats("ChatGPT", file: \.chatGPTChatStatusFile, scan: ChatGPTChatStatus.readWithDiagnostics)
+    }
+
+    private func refreshDesktopChats(_ provider: String, file keyPath: KeyPath<CollectorRuntime, URL?>,
+                                     scan: @escaping () -> ClaudeChatStatus.Scan) {
+        guard !checkingDesktopChats.contains(provider), let file = runtime[keyPath: keyPath] else { return }
+        checkingDesktopChats.insert(provider)
+        desktopChatQueue.async { [weak self] in
+            var data: Data?
+            var diagnostic: (summary: String, hasReadings: Bool)?
+            if ClaudeChatStatus.isTrusted {
+                let observation = scan()
+                let readings = observation.readings
+                diagnostic = (String(describing: observation.diagnostics), !readings.isEmpty)
+                var payload: [String: Any] = [
+                    "observed_at": Date().timeIntervalSince1970,
+                    "chats": readings.map { ["id": $0.id, "title": $0.title, "status": $0.status.rawValue] }
+                ]
+                payload["diagnostics"] = observation.diagnostics.counters
+                data = try? JSONSerialization.data(withJSONObject: payload)
+            }
+            let snapshot = data
+            let scanDiagnostic = diagnostic
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.checkingDesktopChats.remove(provider)
+                guard self.runtime[keyPath: keyPath] == file else { return }
+                if let scanDiagnostic, self.lastDesktopChatScanHadReadings[provider] != scanDiagnostic.hasReadings {
+                    self.lastDesktopChatScanHadReadings[provider] = scanDiagnostic.hasReadings
+                    NSLog("Agent Board %@ chat reader: %@", provider, scanDiagnostic.summary)
+                }
+                guard let snapshot, snapshot.count <= 64 * 1024 else {
+                    try? FileManager.default.removeItem(at: file)
+                    return
+                }
+                let temporary = file.appendingPathExtension(UUID().uuidString + ".tmp")
+                defer { try? FileManager.default.removeItem(at: temporary) }
+                do {
+                    try snapshot.write(to: temporary, options: .withoutOverwriting)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: temporary.path)
+                    if rename(temporary.path, file.path) != 0 {
+                        try? FileManager.default.removeItem(at: file)
+                    }
+                } catch {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
         }
     }
 
@@ -919,6 +979,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         projects.state = defaults.bool(forKey: "cloudProjectsEnabled") ? .on : .off
         if runtime.sandboxed { projects.state = .off; projects.isEnabled = false }
         if !runtime.sandboxed { content.addArrangedSubview(projects) }
+        let ignoreClaudeChats = NSButton(checkboxWithTitle: "Ignore regular Claude chats", target: nil, action: nil)
+        let ignoreChatGPTChats = NSButton(checkboxWithTitle: "Ignore regular ChatGPT chats", target: nil, action: nil)
+        let supportsDesktopChats = !runtime.sandboxed && !runtime.storeDistribution && !fixtureMode
+        if supportsDesktopChats {
+            ignoreClaudeChats.state = defaults.bool(forKey: "claudeDesktopChatsEnabled") ? .off : .on
+            ignoreChatGPTChats.state = defaults.bool(forKey: "chatGPTDesktopChatsEnabled") ? .off : .on
+            ignoreClaudeChats.toolTip = "Uncheck to monitor titles and reply status in open Claude chats using macOS Accessibility."
+            ignoreChatGPTChats.toolTip = "Uncheck to read ChatGPT’s local conversation list and check reply status directly with OpenAI using your existing sign-in."
+            content.addArrangedSubview(ignoreClaudeChats)
+            content.addArrangedSubview(ignoreChatGPTChats)
+            if ignoreClaudeChats.state == .off && !ClaudeChatStatus.isTrusted {
+                let status = NSTextField(wrappingLabelWithString: "Allow Agent Board in System Settings → Privacy & Security → Accessibility to monitor regular Claude chats.")
+                content.addArrangedSubview(status)
+            }
+        }
         if !runtime.sandboxed {
             content.addArrangedSubview(NSButton(title: "Allow Claude Account Access…", target: self, action: #selector(authorizeClaude)))
         }
@@ -1012,13 +1087,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         let networkChanged = defaults.bool(forKey: "accountUsageEnabled") != (usage.state == .on)
             || defaults.bool(forKey: "cloudProjectsEnabled") != (projects.state == .on)
+        let claudeChatsEnabled = supportsDesktopChats && ignoreClaudeChats.state == .off
+        let chatGPTChatsEnabled = supportsDesktopChats && ignoreChatGPTChats.state == .off
+        let enablingRegularChats = (claudeChatsEnabled && !defaults.bool(forKey: "claudeDesktopChatsEnabled"))
+            || (chatGPTChatsEnabled && !defaults.bool(forKey: "chatGPTDesktopChatsEnabled"))
+        let chatSourceChanged = supportsDesktopChats && (
+            defaults.bool(forKey: "claudeDesktopChatsEnabled") != claudeChatsEnabled
+            || defaults.bool(forKey: "chatGPTDesktopChatsEnabled") != chatGPTChatsEnabled
+        )
         defaults.set(usage.state == .on, forKey: "accountUsageEnabled")
         defaults.set(projects.state == .on, forKey: "cloudProjectsEnabled")
+        if supportsDesktopChats {
+            defaults.set(claudeChatsEnabled, forKey: "claudeDesktopChatsEnabled")
+            defaults.set(chatGPTChatsEnabled, forKey: "chatGPTDesktopChatsEnabled")
+            if enablingRegularChats && !ClaudeChatStatus.isTrusted { ClaudeChatStatus.requestPermission() }
+        }
         defaults.set(true, forKey: "setupCompletedV1")
         if notifications.state == .on && !(notificationsEnabled && permissionAllowsNotifications) { toggleNotifications() }
         else if notifications.state == .off { disableNotifications() }
         if fixtureMode { reload(); poll() }
-        else if networkChanged || sourceAccessChanged || !collectorAvailable { startCollector() }
+        else if networkChanged || chatSourceChanged || sourceAccessChanged || !collectorAvailable { startCollector() }
     }
 
     @objc func grantCodexFolder() { grantFolder(name: "Codex", relative: ".codex", key: "codexSourceBookmark") }
@@ -1157,6 +1245,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         sourceAccessChanged = false
         runtime.usageEnabled = !runtime.sandboxed && defaults.bool(forKey: "accountUsageEnabled")
         runtime.projectsEnabled = !runtime.sandboxed && defaults.bool(forKey: "cloudProjectsEnabled")
+        runtime.claudeChatsEnabled = !runtime.sandboxed && !runtime.storeDistribution && defaults.bool(forKey: "claudeDesktopChatsEnabled")
+        runtime.chatGPTChatsEnabled = !runtime.sandboxed && !runtime.storeDistribution && defaults.bool(forKey: "chatGPTDesktopChatsEnabled")
+        lastDesktopChatScanHadReadings.removeAll()
         csrfToken = nil
         collectorAvailable = false
         updateMenu()

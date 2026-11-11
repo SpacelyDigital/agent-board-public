@@ -11,7 +11,8 @@ import platform
 import re
 
 ROOT = Path(__file__).resolve().parent
-STORE_EXCLUDED_MODULES = ("usage_source", "claude_project_source", "privacy_network", "process_reader", "certifi")
+STORE_EXCLUDED_MODULES = ("usage_source", "claude_project_source", "privacy_network", "process_reader", "certifi",
+                          "chatgpt_source", "chatgpt_status", "chatgpt_monitor")
 SANDBOX_APP_ENTITLEMENTS = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.files.user-selected.read-only": True,

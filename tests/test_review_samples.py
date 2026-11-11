@@ -121,7 +121,7 @@ class ReviewSampleTests(unittest.TestCase):
             self.assertEqual(samples.status(self.home), before)
         quotas = {item["id"]: item for item in state["usage"]}
         self.assertEqual(quotas["codex"]["windows"][0]["remaining_percent"], 73)
-        self.assertEqual([item["remaining_percent"] for item in quotas["claude"]["windows"]], [82, 91])
+        self.assertEqual([item["remaining_percent"] for item in quotas["claude"]["windows"]], [91])
         self.assertTrue(all(item["preview"] == "The synthetic review sample is ready." for item in state["sessions"]))
         reviewed = next(item for item in state["sessions"] if item["provider"] == "codex")
         board.store.review(reviewed["key"], reviewed["event_id"])

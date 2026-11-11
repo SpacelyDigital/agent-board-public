@@ -1,21 +1,9 @@
 # App Review notes draft
 
-This draft is **not ready to paste into App Store Connect**. The current local
-candidate is **0.2.5 build 28**, using `com.spacelydigital.agentboard`,
-`us-external` support and the profile-free unrestricted route. Application and
-installer signing, builder checks and independent exact-package verification
-passed. All 427 combined source tests passed with no failures, errors or skips.
-Bounded actual native observations are recorded through
-`2026-11-06T09:46:10.517577+00:00`. Full native acceptance, physical sound and
-provider workflows remain open. No build 28 Transporter
-Verify/Deliver, Apple upload, TestFlight, notarization, App Review or release
-is claimed. Submission readiness remains false.
-
-## Historical build 27 checkpoint
-
-The following build 27 snapshot ends on November 6, 2026 at 06:17 UTC.
-Signing, builder checks and independent exact app/installer verification passed.
-Its native workflows and overall Apple processing remained pending. App Store Connect record
+This draft is **not ready to paste into App Store Connect**. As of November 6,
+2026, 06:17 UTC, build 27 signing, builder checks and independent exact app/installer
+verification passed under `com.spacelydigital.agentboard`. Build 27 native
+workflows and Apple processing remain pending. App Store Connect record
 6831478051 exists as **Agent Board: AI Reply Alerts**. Draft version 0.2.5,
 support URL, manual release, subtitle and category were saved and verified after
 reload. Owner-authorized Transporter Verify and Deliver completed on November 6
@@ -29,9 +17,7 @@ flows on macOS 13. No source grants, real providers, full minimum-OS or
 signed-distribution workflow pass on that OS is claimed. See
 [release status](../APP_STORE_READINESS.md). The build 25 user evidence below
 is historical; no build 27 provider prompt, complete minimum-OS pass or Apple-
-processing completion is claimed. A later actual build 27 login/permission
-timeout recovered after late macOS consent and manual Retry. Its cause was not
-traced and remains a historical failure, separate from build 28 checks.
+processing completion is claimed.
 
 The owner approved a free app with optional Ko-fi support and the public email
 **Spacelydigital@gmail.com**. The app has no reporting account, developer backend,
@@ -90,45 +76,6 @@ answer and quota observations are historical evidence, not this artifact’s pas
 At those earlier checkpoints, actual macOS 13 launch had not been verified.
 Spoken VoiceOver and final signed-distribution macOS 13 workflows remain open.
 
-## Build 28 changes and bounded native checks
-
-The original 100 health attempts now lead to a nonterminal waiting state while
-the initial scan continues. Readiness is authenticated only after the original
-source validation and first scan, with serialized health checks and the same
-child/token/generation. A monotonic 300-second hard deadline is cooperative on
-the main queue and cannot forcibly interrupt synchronous bookmark/filesystem
-calls. Sanitized local phase diagnostics contain no source paths, chat titles,
-tokens or raw error text.
-
-Controlled source/derivative-native checks passed short-delay readiness and a
-35-second delay that failed on old 27 but reached readiness on new 28 without
-restarting the child or token. All owned children were cleaned up. Focused
-actual Swift Runtime checks passed 142 assertions and 16 helper-ordering checks
-across normal ordering and invalid-grant scenarios. These do not establish
-packaged startup or actual TCC behavior. macOS cross-app consent can reset after
-quitting, so repeated prompts remain possible.
-
-Appearance offers ten original local WAV choices and Preview. Selection persists
-through the existing scoped nine-key preference bridge; Sound off mutes web and
-native alerts. Source/helper/main WAV bytes match. Five audio unit tests and
-actual WebKit decoding of all ten choices, fifteen layout/width combinations
-(five layouts at three widths), mute, persistence and background controls passed.
-Physical native audibility and audible mute remain unmeasured. No new SDK,
-telemetry or remote media service was added.
-
-The bounded actual macOS 26 native run reported Installer success, and the installed Info.plist view showed version 0.2.5 build 28. Startup waited beyond the old timeout;
-after owner consent, the connected live board recovered without Retry or source
-reselection. The GUI does not establish child/token/generation identity.
-The native action record contains ten Preview-button actions with no visible
-error; the eight reviewed stills do not independently count each action. Fart
-with Sound on was visibly restored after recorded normal Quit and Finder reopen.
-Generic test notifications were visible after explicit sends with Sound on and
-Sound off. They do not establish provider completion, the selected notification
-sound file, physical sound or audible mute. Actual build 28 provider transitions,
-login/restart, macOS 13, full installed payload/signature readback and complete
-native acceptance remain unverified. Independent review passed within these
-bounds and binds the native ledger and all eight stills at the exact cutoff.
-
 ## Product description for a final reviewer
 
 Agent Board displays local coding-agent chat status for the installed Codex Mac
@@ -186,14 +133,6 @@ opens the mail app without sending or attaching anything automatically. The
 privacy text must disclose these voluntary external flows alongside the absence
 of automatic developer reporting.
 
-## Pending build 28 age-questionnaire review
-
-Review the optional Fart sound under
-[Apple's crude-humor definitions](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions).
-The owner-approved None/4+ selection was for historical build 27. The current
-build 28 questionnaire still needs review; no revised rating or changed Apple
-answer is established here.
-
 ## Final reviewer walkthrough to complete
 
 1. Install the exact final package as an ordinary user. Open all bundled license
@@ -204,10 +143,7 @@ answer is established here.
    Ready, exact-chat handoff and Review/History/Restore without duplicate cards.
 3. Forget and regrant a source while monitoring. Verify current counts and
    notifications exclude unavailable sources while Last known content stays clear.
-4. Exercise initial scan waiting, bounded timeout/Retry and late macOS consent
-   recovery without assuming the earlier build 27 failure cause. Check all sound
-   choices, Preview, native notification audibility, Sound off and persistence.
-   Exercise window close/status reopen, Minimize, normal Quit, restart and the
+4. Exercise window close/status reopen, Minimize, normal Quit, restart and the
    optional login/notification choices. Verify active completion and a notification
    click reach the same real chat on this exact build.
 5. Exercise 200% text and spoken VoiceOver on supported OS versions.

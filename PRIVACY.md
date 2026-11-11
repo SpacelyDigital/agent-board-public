@@ -100,6 +100,17 @@ App Store distribution; the sandbox proof build does not use it.
   analytics disabled and requests only its account rate limits. Codex uses its
   existing sign-in and handles its own provider connection. Agent Board does
   not start a chat or model turn.
+- **ChatGPT reply status:** When regular ChatGPT monitoring is enabled, the
+  direct app reads conversation IDs and titles from the desktop app's local
+  catalog. It uses the existing Codex OAuth sign-in to make bounded HTTPS GET
+  requests to `https://chatgpt.com/backend-api/conversation/<id>/stream_status`.
+  It also requests the recent-conversation metadata list at the fixed
+  `https://chatgpt.com/backend-api/conversations` route with expansion disabled,
+  so chats created outside the desktop app can be found without reading messages.
+  These requests return reply status, not messages. Credentials remain in
+  memory and are sent only to that fixed OpenAI origin. Redirects and proxy
+  configuration are rejected. The reader does not refresh credentials or
+  initiate a sign-in. The Store profile excludes this account reader.
 
 Agent Board does not submit prompts, start agent work, upload local chat
 transcripts, or transmit data to the developer. Provider requests necessarily
@@ -133,12 +144,17 @@ offers read-only source-folder selection, optional notifications and opening at
 login. It does not offer saved-account access. In the private direct-download prototype, account
 usage, Claude cloud projects, notifications and launch at login are off by
 default. Change those choices with **Agent Board → Setup and Permissions**.
+The direct Mac app lets you include regular ChatGPT and Claude chats in
+**Setup and Permissions**. Both are optional. Claude window monitoring requires
+macOS Accessibility access and reads titles, chat links and activity indicators
+from open windows. ChatGPT monitoring uses its local catalog and the direct
+status requests described above. These readers do not copy messages or control
+the provider apps, and store board status on this Mac.
 
 If you choose **Allow Claude Account Access**, the app requests access to the
 named existing Claude Keychain item through macOS. Background credential reads
 never request a permission prompt. Notifications are optional and subject to
-macOS permission. Agent Board does
-not require camera, microphone, screen recording or Accessibility access. Its
+macOS permission. Agent Board does not require camera, microphone or screen recording. Its
 collector needs read access to the existing provider files used for discovery;
 macOS may restrict those files or the existing Claude Keychain item.
 

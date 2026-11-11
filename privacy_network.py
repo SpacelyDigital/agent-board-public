@@ -9,9 +9,11 @@ Codex's separately installed app-server owns its own account connection.
 from __future__ import annotations
 
 import http.client
+from email.utils import parsedate_to_datetime
 import json
 import re
 import ssl
+import time
 from urllib.parse import parse_qsl, urlsplit
 import urllib.error
 import urllib.request
@@ -27,10 +29,29 @@ _PROJECT_PATH = re.compile(
 class ProviderRequestError(Exception):
     """A fixed reason and optional HTTP status, without remote or local details."""
 
-    def __init__(self, reason: str, status: int | None = None):
+    def __init__(self, reason: str, status: int | None = None, *, retry_after: float | None = None):
         self.reason = reason
         self.status = status
+        self.retry_after = retry_after
         super().__init__("The direct provider read was unavailable.")
+
+
+def _retry_after(value: object) -> float | None:
+    """Retain only a bounded wait duration, never an arbitrary response header."""
+    if not isinstance(value, str) or len(value) > 128:
+        return None
+    value = value.strip()
+    try:
+        if re.fullmatch(r"[0-9]{1,8}", value):
+            seconds = float(value)
+        else:
+            date = parsedate_to_datetime(value)
+            if date.tzinfo is None:
+                return None
+            seconds = date.timestamp() - time.time()
+        return max(0.0, min(86400.0, seconds))
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 class RejectRedirects(urllib.request.HTTPRedirectHandler):
@@ -115,8 +136,9 @@ def read_provider_json(url: str, token: str, *, purpose: str,
         raise
     except urllib.error.HTTPError as error:
         status = error.code
+        retry_after = _retry_after(error.headers.get("Retry-After")) if error.headers and status in (429, 503) else None
         error.close()
-        raise ProviderRequestError("http", status) from None
+        raise ProviderRequestError("http", status, retry_after=retry_after) from None
     except (OSError, ValueError, UnicodeError, RecursionError, urllib.error.URLError,
             http.client.HTTPException):
         raise ProviderRequestError("unavailable") from None

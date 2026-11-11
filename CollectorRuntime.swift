@@ -87,6 +87,10 @@ final class CollectorRuntime {
     private var sourceManifestFile: URL?
     var usageEnabled = false
     var projectsEnabled = false
+    var claudeChatsEnabled = false
+    private(set) var claudeChatStatusFile: URL?
+    var chatGPTChatsEnabled = false
+    private(set) var chatGPTChatStatusFile: URL?
     private var attempts = 0
     private var ready = false
     private var ownedGroup: pid_t?
@@ -380,6 +384,16 @@ final class CollectorRuntime {
             else { child.arguments?.append("--usage") }
             if sandboxed || !projectsEnabled { child.arguments?.append("--no-projects") }
             else { child.arguments?.append("--projects") }
+            if !sandboxed && !storeDistribution && !sampleMode && sourceRoots == nil {
+                if claudeChatsEnabled {
+                    let statusFile = data.appendingPathComponent("claude-chat-status-\(instanceID).json")
+                    claudeChatStatusFile = statusFile
+                    child.arguments?.append(contentsOf: ["--claude-chat-status-file", statusFile.path])
+                }
+                if chatGPTChatsEnabled {
+                    child.arguments?.append("--chatgpt-chats")
+                }
+            }
             if sandboxed {
                 recordStartupPhase(.transferringSources)
                 let roots = try sandboxSources(data: data)
@@ -575,6 +589,10 @@ final class CollectorRuntime {
         accessTokenFile = nil
         if let manifest = sourceManifestFile { try? FileManager.default.removeItem(at: manifest) }
         sourceManifestFile = nil
+        if let statusFile = claudeChatStatusFile { try? FileManager.default.removeItem(at: statusFile) }
+        claudeChatStatusFile = nil
+        if let statusFile = chatGPTChatStatusFile { try? FileManager.default.removeItem(at: statusFile) }
+        chatGPTChatStatusFile = nil
         try? logHandle?.close()
         logHandle = nil
     }

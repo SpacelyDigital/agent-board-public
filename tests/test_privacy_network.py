@@ -68,6 +68,8 @@ extendedKeyUsage=serverAuth
                     self.send_response(cls.status)
                     if cls.location is not None:
                         self.send_header("Location", cls.location)
+                    if getattr(cls, 'retry_after', None) is not None:
+                        self.send_header("Retry-After", cls.retry_after)
                     self.send_header("Content-Length", str(len(cls.body)))
                     self.end_headers()
                     self.wfile.write(cls.body)
@@ -92,6 +94,18 @@ extendedKeyUsage=serverAuth
         type(self).requests.clear()
         type(self).connects.clear()
         type(self).status, type(self).body, type(self).location = 200, b"{}", None
+        type(self).retry_after = None
+
+    def test_retry_after_preserves_only_safe_wait_duration(self):
+        for header, expected in [('900', 900), ('bad-private-header', None), ('-2', None),
+                                 ('99999999', 86400), ('Thu, 01 Jan 2026 00:15:00 GMT', 900)]:
+            self.setUp()
+            type(self).status, type(self).retry_after = 429, header
+            with self.transport(), patch('privacy_network.time.time', return_value=1767225600):
+                with self.assertRaises(network.ProviderRequestError) as error:
+                    self.read()
+            self.assertEqual(error.exception.retry_after, expected)
+            self.assertNotIn(header, str(error.exception))
 
     @contextmanager
     def transport(self, *, trust_fixture=True):

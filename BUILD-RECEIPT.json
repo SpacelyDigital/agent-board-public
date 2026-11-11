@@ -1,0 +1,32 @@
+{
+  "version": "0.2.5",
+  "build": 52,
+  "source_manifest_sha256": "7855b33d191e020de8db433c95c8245df5080441cd3a0d9a0fba8e3b101e5604",
+  "source_files": 193,
+  "automated_tests": 522,
+  "usage_layout_checks": 16,
+  "usage_ui_phases": 10,
+  "native_proofs": [
+    "Claude direct",
+    "ChatGPT direct",
+    "Claude Store"
+  ],
+  "signing": "existing Developer ID; local build without new notarization",
+  "executables": {
+    "Contents/MacOS/AgentBoard": "4b90e4923c6ed27fc29d9295bb2ff34a72298586ac4909827ecaee055be4b428",
+    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "5650fc31a2dc0d541ec6bac175b583468bbee54adea7efaf7d6540bc22250f13"
+  },
+  "zip_sha256": "defc0e7a1e61aed04293f2e21f0d2b681bade0f94eae118465bfb33f056e5020",
+  "verified_on": "2026-11-11",
+  "live_workflows": {
+    "claude_chat": "One Cooking card became Ready; Open reached the exact chat; Reviewed persisted after app restart.",
+    "chatgpt": "One Cooking card became Ready; Open reached the exact chat; Reviewed persisted after app restart.",
+    "usage": "Both providers returned fresh readings with whole numbers; provider rows align in healthy and rate-limited states."
+  },
+  "limitations": [
+    "Very short ChatGPT replies can finish between status checks.",
+    "Ordinary Claude chat monitoring requires readable desktop-window controls.",
+    "Provider rate limits can temporarily delay usage readings. The adaptive polling interval is retained for the current app run.",
+    "This local Developer ID build has no new notarization and is separate from the App Store candidate."
+  ]
+}

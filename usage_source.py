@@ -22,6 +22,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Callable
 
@@ -35,10 +36,17 @@ REQUEST_TIMEOUT = 3.0
 CODEX_TIMEOUT = 12.0
 CLAUDE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
 CLAUDE_DESKTOP = Path.home() / "Library/Application Support/Claude"
+_KEYCHAIN_INTERACTION_LOCK = threading.Lock()
 
 
 class UsageUnavailable(Exception):
     """A safe, actionable error string that contains no credentials or responses."""
+
+    def __init__(self, message: str, *, code: str | None = None, retry_after: float | None = None):
+        super().__init__(message)
+        self.code = code if isinstance(code, str) and code in {"claude_account_access_required", "rate_limited"} else None
+        self.retry_after = (float(retry_after) if type(retry_after) in (int, float)
+                            and 0 <= retry_after <= 86400 and math.isfinite(retry_after) else None)
 
 
 def _number(value: Any) -> float | None:
@@ -101,7 +109,7 @@ def parse_codex_usage(response: dict[str, Any], *, include_credits: bool = False
     raise UsageUnavailable("The Codex account did not return a weekly usage window.")
 
 
-def parse_claude_usage(response: dict[str, Any]) -> list[dict[str, Any]]:
+def parse_claude_usage(response: dict[str, Any], *, include_credits: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     if not isinstance(response, dict):
         raise UsageUnavailable("Claude returned an unsupported account usage response.")
     windows = []
@@ -111,6 +119,15 @@ def parse_claude_usage(response: dict[str, Any]) -> list[dict[str, Any]]:
             window = _window(ident, label, value.get("utilization", value.get("used_percentage")), value.get("resets_at"))
             if window:
                 windows.append(window)
+    credits = None
+    extra = response.get("extra_usage")
+    # A monthly spending cap is not a prepaid balance. The account can
+    # explicitly report that credits were turned off without returning money.
+    if (isinstance(extra, dict) and extra.get("is_enabled") is False
+            and extra.get("user_disabled") is True):
+        credits = {"status": "disabled", "unit": "USD"}
+    if include_credits and (windows or credits is not None):
+        return {"windows": windows, **({"credits": credits} if credits is not None else {})}
     if not windows:
         raise UsageUnavailable("The Claude account did not return usage percentages and reset times.")
     return windows
@@ -197,6 +214,31 @@ def fetch_codex_usage(*, include_credits: bool = False) -> list[dict[str, Any]] 
             stop_process(process)
 
 
+def _copy_keychain_item(security, query, result, *, allow_interaction: bool):
+    # The query also disables authentication UI. Guard the legacy file Keychain
+    # at process level before making a background request.
+    with _KEYCHAIN_INTERACTION_LOCK:
+        if allow_interaction:
+            return security.SecItemCopyMatching(query, result)
+        try:
+            get_interaction = security.SecKeychainGetUserInteractionAllowed
+            set_interaction = security.SecKeychainSetUserInteractionAllowed
+        except AttributeError:
+            raise UsageUnavailable("The Mac's Keychain could not be read without permission prompts.") from None
+        get_interaction.argtypes = [ctypes.POINTER(ctypes.c_ubyte)]
+        get_interaction.restype = ctypes.c_int32
+        set_interaction.argtypes = [ctypes.c_ubyte]
+        set_interaction.restype = ctypes.c_int32
+        previous = ctypes.c_ubyte()
+        if get_interaction(ctypes.byref(previous)) != 0 or set_interaction(0) != 0:
+            raise UsageUnavailable("The Mac's Keychain could not be read without permission prompts.")
+        try:
+            return security.SecItemCopyMatching(query, result)
+        finally:
+            if set_interaction(previous.value) != 0:
+                raise UsageUnavailable("The Mac's Keychain interaction setting could not be restored.")
+
+
 def _keychain_password(service: str, *, allow_interaction: bool = False) -> bytes:
     """Read the named item; only the explicit account-access action permits UI."""
     if sys.platform != "darwin":
@@ -229,11 +271,12 @@ def _keychain_password(service: str, *, allow_interaction: bool = False) -> byte
             (constant("kSecUseAuthenticationUI"), constant("kSecUseAuthenticationUIAllow" if allow_interaction else "kSecUseAuthenticationUIFail")),
         ):
             core.CFDictionarySetValue(query, key, value)
-        status = security.SecItemCopyMatching(query, ctypes.byref(result))
+        status = _copy_keychain_item(security, query, ctypes.byref(result), allow_interaction=allow_interaction)
         if status in (-25308, -25293, -128):
             if allow_interaction:
                 raise UsageUnavailable("Claude account access was not allowed. You can try again from Setup and Permissions.")
-            raise UsageUnavailable("Keychain has not allowed access to Claude Safe Storage. No permission prompt was opened.")
+            raise UsageUnavailable("Keychain has not allowed access to Claude Safe Storage. No permission prompt was opened.",
+                                   code="claude_account_access_required")
         if status == -25300:
             raise UsageUnavailable("Claude Safe Storage was not found in this Mac's available Keychains.")
         if status != 0 or not result.value:
@@ -338,12 +381,12 @@ def _claude_token(folder: Path, now: float) -> str:
         raise UsageUnavailable("Claude's existing desktop sign-in could not be read.") from None
 
 
-def _fetch_claude_in_process(now: float, folder: Path = CLAUDE_DESKTOP) -> list[dict[str, Any]]:
+def _fetch_claude_in_process(now: float, folder: Path = CLAUDE_DESKTOP, *, include_credits: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
     token = _claude_token(folder, now)
     try:
         value = read_provider_json(CLAUDE_ENDPOINT, token, purpose="usage",
                                    timeout=REQUEST_TIMEOUT, max_bytes=1024 * 1024)
-        return parse_claude_usage(value)
+        return parse_claude_usage(value, include_credits=include_credits)
     except UsageUnavailable:
         raise
     except ProviderRequestError as error:
@@ -352,13 +395,15 @@ def _fetch_claude_in_process(now: float, folder: Path = CLAUDE_DESKTOP) -> list[
         if error.status in (401, 403):
             raise UsageUnavailable("Claude did not accept its existing desktop sign-in for account usage. Open Claude to check its sign-in.") from None
         if error.status == 429:
-            raise UsageUnavailable("Claude has temporarily limited usage checks. The dashboard will retry later.") from None
+            raise UsageUnavailable("Usage checks are temporarily rate limited.", code="rate_limited",
+                                   retry_after=error.retry_after) from None
         if error.status is not None:
-            raise UsageUnavailable(f"Claude account usage is unavailable (HTTP {error.status}).") from None
+            raise UsageUnavailable(f"Claude account usage is unavailable (HTTP {error.status}).",
+                                   retry_after=error.retry_after) from None
         raise UsageUnavailable("The Claude account usage read failed or timed out.") from None
 
 
-def fetch_claude_usage() -> list[dict[str, Any]]:
+def fetch_claude_usage() -> list[dict[str, Any]] | dict[str, Any]:
     # Security.framework can stall even with authentication UI forbidden. Keep the
     # complete credential read + fixed-origin request in an isolated subprocess;
     # its only output is normalized usage or a sanitized error, never a credential.
@@ -378,9 +423,11 @@ def fetch_claude_usage() -> list[dict[str, Any]]:
         if not isinstance(value, dict):
             raise ValueError
         if value.get("error"):
-            raise UsageUnavailable(str(value["error"]))
+            raise UsageUnavailable(str(value["error"]), code=value.get("error_code"), retry_after=value.get("retry_after"))
         windows = value.get("windows")
-        if not isinstance(windows, list) or not windows:
+        credits = value.get("credits")
+        credits_disabled = credits == {"status": "disabled", "unit": "USD"}
+        if not isinstance(windows, list) or (not windows and not credits_disabled):
             raise ValueError
         # Keep only normalized public fields even across the helper boundary.
         normalized = []
@@ -392,7 +439,7 @@ def fetch_claude_usage() -> list[dict[str, Any]]:
                 raise ValueError
             normalized.append({"id": row["id"], "label": "5-hour" if row["id"] == "five_hour" else "Weekly",
                                "remaining_percent": remaining, "reset_at": reset})
-        return normalized
+        return {"windows": normalized, "credits": {"status": "disabled", "unit": "USD"}} if credits_disabled else normalized
     except UsageUnavailable:
         raise
     except (ValueError, UnicodeError, RecursionError):
@@ -400,19 +447,22 @@ def fetch_claude_usage() -> list[dict[str, Any]]:
 
 
 class UsageSource:
-    """One account-only request per provider per minute, retaining stale successes."""
+    """Retain each provider's learned polling pace without losing usage history."""
 
     def __init__(self, fetchers: dict[str, Callable[[], list[dict[str, Any]] | dict[str, Any]]] | None = None):
         self._fetchers = fetchers or {"codex": lambda: fetch_codex_usage(include_credits=True), "claude": fetch_claude_usage}
         self._cache: dict[str, dict[str, Any]] = {}
         self._attempts: dict[str, float] = {}
+        self._next_attempts: dict[str, float] = {}
+        self._failures: dict[str, int] = {}
+        self._refresh_floors: dict[str, float] = {}
 
     def scan(self, now: float) -> list[dict[str, Any]]:
         entries = []
         for ident, name in (("claude", "Claude"), ("codex", "Codex")):
             cached = self._cache.get(ident)
             last_attempt = self._attempts.get(ident)
-            if last_attempt is None or now - last_attempt >= REFRESH_SECONDS or now < last_attempt:
+            if last_attempt is None or now >= self._next_attempts.get(ident, 0) or now < last_attempt:
                 self._attempts[ident] = now
                 try:
                     result = self._fetchers[ident]()
@@ -421,15 +471,35 @@ class UsageSource:
                     windows = [window for window in windows if window.get("id") == "weekly"]
                     if not windows and credits is None:
                         raise UsageUnavailable("Weekly account usage is currently unavailable.")
-                    cached = {"id": ident, "name": name, "available": True, "updated_at": now, "stale": False, "error": None, "windows": windows, "loading": False}
+                    cached = {"id": ident, "name": name, "available": True, "updated_at": now, "stale": False, "error": None, "error_code": None, "retry_at": None, "windows": windows, "loading": False}
+                    self._failures[ident] = 0
+                    self._next_attempts[ident] = now + self._refresh_floors.get(ident, REFRESH_SECONDS)
                     if credits is not None:
                         cached["credits"] = {**credits, "observed_at": now}
                 except Exception as error:
                     message = str(error) if isinstance(error, UsageUnavailable) else "Account usage could not be read."
+                    code = error.code if isinstance(error, UsageUnavailable) else None
+                    failures = self._failures.get(ident, 0) + 1
+                    self._failures[ident] = failures
+                    base = 300 if code == "rate_limited" else REFRESH_SECONDS
+                    delay = min(1800, base * 2 ** min(failures - 1, 5))
+                    floor = self._refresh_floors.get(ident, REFRESH_SECONDS)
+                    if code == "rate_limited":
+                        # A successful retry does not prove that minute polling
+                        # is permitted. Remember the slower pace for this run;
+                        # another rate limit increases it even after success.
+                        delay = max(delay, min(1800, max(300, floor * 2)))
+                    delay = max(delay, floor)
+                    if isinstance(error, UsageUnavailable) and error.retry_after is not None:
+                        delay = max(delay, error.retry_after)
+                    if code == "rate_limited":
+                        self._refresh_floors[ident] = delay
+                    self._next_attempts[ident] = now + delay
                     if cached and cached.get("available"):
-                        cached = {**cached, "stale": True, "error": message}
+                        cached = {**cached, "stale": True, "error": message, "error_code": code}
                     else:
-                        cached = {"id": ident, "name": name, "available": False, "updated_at": None, "stale": False, "error": message, "windows": [], "loading": False}
+                        cached = {"id": ident, "name": name, "available": False, "updated_at": None, "stale": False, "error": message, "error_code": code, "windows": [], "loading": False}
+                    cached["retry_at"] = self._next_attempts[ident]
                 self._cache[ident] = cached
             entry = copy.deepcopy(cached)
             if entry.get("updated_at") is not None and now - entry["updated_at"] > STALE_SECONDS:
@@ -450,8 +520,8 @@ if __name__ == "__main__" and sys.argv[1:] == ["--authorize-claude"]:
 
 if __name__ == "__main__" and sys.argv[1:] == ["--read-claude-usage"]:
     try:
-        print(json.dumps({"windows": _fetch_claude_in_process(time.time())}))
+        print(json.dumps(_fetch_claude_in_process(time.time(), include_credits=True)))
     except UsageUnavailable as error:
-        print(json.dumps({"error": str(error)}))
+        print(json.dumps({"error": str(error), "error_code": error.code, "retry_after": error.retry_after}))
     except Exception:
         print(json.dumps({"error": "Claude account usage could not be read."}))

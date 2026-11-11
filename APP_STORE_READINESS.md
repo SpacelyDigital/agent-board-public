@@ -1,88 +1,12 @@
 # Mac App Store readiness
 
-Status as of November 6, 2026: **not ready for submission**. The current locally
-signed candidate is **0.2.5 build 28**, with `us-external` support and the
-profile-free unrestricted route. Bounded actual native observations are recorded
-through `2026-11-06T09:46:10.517577+00:00`; full native acceptance and physical
-sound audibility remain open. No build 28
-Transporter Verify/Deliver, Apple upload, TestFlight, notarization, App Review
-or release is claimed. Historical build 27 delivery and Missing Compliance
-remain separate below.
+Status as of November 6, 2026, 06:17 UTC: **not ready for submission**. The owner approved a
+free launch with optional Ko-fi support. The signed build 27 package completed
+its builder checks and independent exact app/installer verification. Remaining
+native and Apple release workflows remain open. Delivered build 27 is attached
+to version 0.2.5 with Missing Compliance; App Review and release remain pending.
 
-## Build 28 local package and supporting checks
-
-Application and Mac Installer Distribution signing, builder checks and independent
-exact-package verification passed for `com.spacelydigital.agentboard`. The signed
-package is 10,839,062 bytes with SHA-256
-`ef254f3a65dd67be2b96f1288b4c2cac229f36f4516f00697f587cb9bb85bfcb`.
-The independent audit compared all 118 original/extracted app entries, nine
-compiled Python modules, 33 mapped helper resources and ten main-app PCM sounds.
-Source/helper/main copies of each WAV match. All 96 runtime/build inputs match
-the frozen source, which contains 180 selected files plus its generated manifest.
-Exact pins are in [ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json).
-These are static local package results, separate from actual installed behavior.
-
-The combined source suite passed 427 tests with zero failures, errors or skips;
-external/account/prohibited-process guards recorded zero attempts. Signing,
-installation and GUI actions were excluded from that source-test run. Focused
-actual Swift Runtime checks passed 142 assertions and 16 helper-ordering checks
-across normal ordering and invalid-grant scenarios. Those checks are not packaged
-startup, TCC or recipient evidence.
-
-Startup now changes the original 100 health-attempt limit into a nonterminal
-waiting state. A monotonic 300-second hard deadline keeps one child, token and
-generation, serializes health checks and requires authenticated readiness after
-the original source validation and first scan. Local phase diagnostics are
-sanitized and contain no source paths, chat titles, tokens or raw error text.
-The main-queue deadline is cooperative; it cannot forcibly interrupt a
-synchronous native bookmark or filesystem call.
-
-A controlled source/derivative-native comparison reached readiness at 3.431
-seconds on old 27 and 3.440 seconds on new 28 with a three-second delay. With a
-35-second delay, old 27 failed at 26.316 seconds; new 28 emitted waiting at 26.393
-seconds and authenticated readiness at 35.365 seconds with the same child and
-token. Owned children were cleaned up and all guards remained zero. This bounded
-comparison does not prove the exact packaged helper, actual TCC or installed GUI.
-
-Ten original local WAV choices, an Appearance selector and Preview use the
-existing scoped nine-key preference bridge. Sound off mutes native and web
-alerts; the selection persists locally. Five audio unit tests and actual WebKit
-checks passed ten-file decoding, fifteen layout/width combinations (five
-layouts at three widths), mute, persistence and background controls. No new SDK,
-telemetry or media network service was added. Physical native sound audibility
-and audible mute remain unmeasured.
-
-## Bounded actual installed build 28 observations
-
-At the cutoff above, the native macOS 26 Installer reported success and the installed Info.plist view showed version 0.2.5 build 28. Startup remained waiting beyond the old
-timeout. After the owner allowed the macOS data prompt, a connected live board
-recovered without Retry or source reselection. The GUI does not establish that
-the child, token or generation stayed the same; that property is limited to the
-controlled source/derivative-native evidence above.
-
-The native action record contains ten Preview-button actions with no visible
-error. The eight reviewed stills do not independently count each action. Fart
-with Sound on was visibly restored after recorded normal Quit and Finder reopen.
-Generic test notifications were visible after explicit sends with Sound on and
-Sound off. These do not establish provider completion, the selected notification
-sound file, physical sound output or audible mute. Actual build 28 provider
-transitions, login/restart, macOS 13, full installed payload/signature readback
-and complete native acceptance remain unverified. Independent review passed
-within these bounds and binds the native ledger and all eight stills at the
-exact cutoff.
-
-A later actual build 27 login/permission run timed out. Late macOS consent and
-manual Retry recovered monitoring, but the cause was not traced. The controlled
-comparison above does not prove that cause. macOS cross-app consent can reset
-after quitting the app; repeat prompts remain possible. The bounded build 28
-late-consent startup recovery above does not establish the earlier failure's
-cause or an actual build 28 login/restart result.
-
-## Historical build 27 shipping preparation
-
-The following build 27 snapshot ends on November 6, 2026 at 06:17 UTC. It is
-preserved evidence for that earlier artifact and does not establish build 28
-Apple or native outcomes.
+## Build 27 shipping preparation
 
 The registered release App ID is `com.spacelydigital.agentboard`. Application and
 Mac Installer Distribution signing succeeded. Build 27’s builder passed exact
@@ -94,7 +18,7 @@ it does not establish installed behavior or Apple processing.
 
 The signed package is 10,374,279 bytes with SHA-256
 `ef1d0fdcbe701ce055e2e6d395ae4d57454a7ff9c771d820d144ca63ed1ef2ad`.
-Exact historical build 27 main/helper and builder-check hashes are recorded in
+Exact current main/helper and builder-check hashes are recorded in
 [ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json). Detailed packaging
 history is in [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md).
 
@@ -330,10 +254,7 @@ GitHub hosting-IP disclosures. The website contains no app source or account dat
 ## Required before submission
 
 1. Complete clean first-grant setup, negative storefront conditions and remaining
-   final-artifact workflows. Build 28's bounded late-consent startup and saved
-   Fart/Sound on choice are observed; complete permission recovery, physical sound
-   and native acceptance remain open. The bounded build 25
-   provider/recovery checks above
+   final-artifact workflows. The bounded build 25 provider/recovery checks above
    passed; repeat affected workflows if signing, identity or product bytes change.
 2. Install and run the final candidate on macOS 13. Native VoiceOver spoken
    labels/announcements, ordinary keyboard navigation, reduced motion, effects
@@ -344,22 +265,15 @@ GitHub hosting-IP disclosures. The website contains no app source or account dat
 4. Complete the final identity’s installed/delivery checks. App ID registration,
    application/installer signing and independent exact-package verification are
    complete. Profile-free packaging is not a TestFlight configuration; fresh
-   online revocation, receipt/update behavior, Apple processing and Apple-resigned
-   delivery remain separate. Complete build 28 native and minimum-OS acceptance
-   remains open; prior preview results do not transfer to it.
+   online revocation, Apple processing and Apple-resigned delivery remain separate.
 5. Preserve verified draft version 0.2.5, support URL, manual release, subtitle
    and category. Complete remaining listing fields, privacy URL/answers, free
    price, screenshots, SDK/export answers, provider/branding review and review
-   instructions. Resolve historical build 27's Missing Compliance status through an
+   instructions. Resolve the current Missing Compliance status through an
    accurate owner encryption determination, retain SDK/privacy/export gates and
-   complete distribution checks. Transporter delivery/build attachment are done
-   for historical build 27 only; build 28 Verify/Deliver and upload remain undone.
+   complete distribution checks. Transporter delivery/build attachment are done.
    Bundled third-party crypto means local monitoring does not establish a
    no-crypto or Apple-OS-only classification. The owner’s determination is pending.
-6. Review the build 28 age questionnaire for the optional Fart sound under
-   [Apple's crude-humor definitions](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions).
-   The owner-approved None/4+ selection was for historical build 27. No revised
-   rating is assigned and no changed Apple answer is claimed here.
 
 No release gate is waived by source-test counts, a dummy native parent,
 structural signatures, a listed certificate or a successful website repository.

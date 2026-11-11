@@ -22,6 +22,7 @@ INSTALLED_APP = Path("/Applications/Agent Board.app")
 ALERT_SOUND_IDS = ("soft-ding", "chime", "bell", "glass", "marimba", "arcade", "radar", "space-signal", "pop", "fart")
 RUNTIME_FILES = (
     "server.py", "board_store.py", "codex_source.py", "claude_source.py", "claude_project_source.py", "chat_links.py", "usage_source.py", "process_reader.py",
+    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py",
     "privacy_network.py", "sandbox_sources.py", "source_access.py", "local_quota.py",
     "static/index.html", "static/app.js", "static/style.css", "static/palettes.css",
     "static/themes.js", "static/effects.js", "static/effects.css",
@@ -101,9 +102,12 @@ def build_app(signing_identity=None, *, sandboxed=False, build_root=None, config
     shutil.copy2(ROOT / "MacApp.swift", native / "main.swift")
     subprocess.run(["/usr/bin/swiftc", "-O", "-module-cache-path", str(cache),
                     "-target", platform.machine() + "-apple-macos13.0",
+                    *(["-D", "AGENT_BOARD_DIRECT"] if not sandboxed else []),
                     "-framework", "AppKit", "-framework", "WebKit", "-framework", "UserNotifications", "-framework", "ServiceManagement",
                     "-framework", "StoreKit", "-framework", "Network",
-                    str(native / "main.swift"), str(ROOT / "CollectorRuntime.swift"), "-o", str(binaries / "AgentBoard")], check=True)
+                    str(native / "main.swift"), str(ROOT / "CollectorRuntime.swift"), str(ROOT / "ClaudeChatStatus.swift"),
+                    str(ROOT / "ChatGPTChatStatus.swift"),
+                    "-o", str(binaries / "AgentBoard")], check=True)
     from build_support import copy_collector, validate_bundle, codesign_command, copy_privacy_manifest, xcode_build_metadata
     legacy_collector = contents / "Helpers" / "collector"
     if legacy_collector.exists():

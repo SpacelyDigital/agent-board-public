@@ -57,7 +57,9 @@ def main():
     subprocess.run(["/usr/bin/swiftc", "-O", "-module-cache-path", str(output / "swift-cache"),
                     "-target", platform.machine() + "-apple-macos13.0", "-framework", "AppKit", "-framework", "WebKit",
                     "-framework", "UserNotifications", "-framework", "ServiceManagement",
-                    str(source), str(ROOT / "CollectorRuntime.swift"), "-o", str(binary)], check=True)
+                    str(source), str(ROOT / "CollectorRuntime.swift"), str(ROOT / "ClaudeChatStatus.swift"),
+                    str(ROOT / "ChatGPTChatStatus.swift"),
+                    "-o", str(binary)], check=True)
     info_path = app / "Contents/Info.plist"
     info = plistlib.loads(info_path.read_bytes())
     if not info.get("AgentBoardSandboxed"):

@@ -30,8 +30,8 @@ sessions stay separate from your main board.
 
 Choose among five layouts and fifteen themes with light and dark modes.
 Enlarge text from the native View menu, keep the board on top, or close its
-window and keep monitoring from the menu bar. Choose and preview one of ten
-local alert sounds, or turn sounds off. Native notifications are optional.
+window and keep monitoring from the menu bar. Optional sounds and native
+notifications can draw attention to new replies.
 
 Local usage panels can show Claude’s five-hour and weekly windows and Codex’s
 weekly window, with reset times when available. These are cached observations
@@ -68,24 +68,7 @@ provider handoff, cached quota windows and customizable appearance.
 
 ## Final configuration gates
 
-The current local candidate is **0.2.5 build 28**, signed using the profile-free
-unrestricted route with `us-external` support. Builder and independent exact-package
-checks and all 427 combined source tests passed. The bounded actual native
-snapshot ends at `2026-11-06T09:46:10.517577+00:00`. The macOS 26 Installer
-reported success and the installed Info.plist view showed version 0.2.5 build 28. The connected
-live board recovered without Retry or source reselection after waiting beyond
-the old timeout and receiving owner consent. The GUI does not establish
-child/token/generation identity. Ten recorded Preview-button actions produced no
-visible error. Fart with Sound on persisted through normal Quit and Finder
-reopen. Generic test notifications were visible after explicit sends with Sound
-on and Sound off. Physical sound, audible mute and the selected notification
-sound file were not verified. Actual build 28 provider transitions,
-login/restart, macOS 13 and full native acceptance remain unverified.
-No build 28 Transporter Verify/Deliver, Apple upload, TestFlight, notarization,
-App Review or release is claimed. Submission readiness remains false.
-
-The following build 27 listing/account observations are historical and end on
-November 6, 2026 at 06:17 UTC. They do not establish build 28 acceptance.
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
 
 - The owner approved **Spacelydigital@gmail.com** as the public support contact.
 - Set the actual listing price to Free. Seller details, availability and full
@@ -101,9 +84,7 @@ November 6, 2026 at 06:17 UTC. They do not establish build 28 acceptance.
   with Missing Compliance after save/reload; encryption Manage was canceled
   unanswered. Installer on macOS 26 reported success; normal launch reached Setup
   and the Codex read-only picker, with no grant or full workflow pass. See
-  [release status](../APP_STORE_READINESS.md). A later actual build 27
-  login/permission timeout recovered after late macOS consent and manual Retry;
-  its cause was not traced. No overall processing/compliance,
+  [release status](../APP_STORE_READINESS.md); no overall processing/compliance,
   App Review or release approval is claimed.
 - Target hardware is Apple silicon with macOS 13. Ad-hoc preview 27 passed bounded
   no-source dashboard, local Privacy/navigation, Light persistence, Sample review/
@@ -114,9 +95,7 @@ November 6, 2026 at 06:17 UTC. They do not establish build 28 acceptance.
   two real provider turns, exact links/review, source reconnection and manual
   Quit/reopen passed. VoiceOver, clean first-grant setup, independent country
   readback and negative storefront conditions remain open. Repeat affected
-  workflows after final signing/identity changes, including build 28 sound,
-  scan-wait and macOS permission recovery, and narrow copy if needed. macOS
-  cross-app consent can reset after quitting; do not promise that prompts never recur.
+  workflows after final signing/identity changes and narrow copy if needed.
 - Verified Support URL: https://spacelydigital.github.io/agent-board-support/
 - Verified Privacy Policy URL:
   https://spacelydigital.github.io/agent-board-support/privacy.html
@@ -124,10 +103,6 @@ November 6, 2026 at 06:17 UTC. They do not establish build 28 acceptance.
   source inspection and actual live desktop/narrow navigation. The support URL
   is verified in App Store Connect; remaining fields and Apple processing are
   still pending.
-- Review the current build 28 age questionnaire for the optional Fart sound
-  under [Apple's crude-humor definitions](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions).
-  The owner-approved None/4+ selection was for historical build 27. No revised
-  rating or changed Apple answer is established for build 28.
 - Final App Privacy answers must match the entire artifact and documented
   voluntary support flows. Automatic developer collection is absent; this draft
   does not substitute for final Apple-form review or Apple processing.

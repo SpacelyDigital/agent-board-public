@@ -81,26 +81,28 @@
             <div class="usage-windows">
               <div id="usage-claude-weekly" class="usage-window" aria-label="Claude weekly usage">
                 <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
-                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span></div>
               </div>
               <div id="usage-claude-credits" class="usage-window usage-credits" aria-label="Claude credits available">
                 <div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">Loading</span></div>
-                <div class="usage-bottom"><a class="usage-balance-link" href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Claude credit balance" hidden>View balance</a><span class="usage-freshness" hidden></span></div>
+                <div class="usage-bottom"><a class="usage-balance-link" href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Claude credit balance" hidden>View balance</a></div>
               </div>
             </div>
+            <p id="usage-claude-note" class="usage-provider-note usage-freshness" hidden></p>
           </section>
           <section class="usage-provider" data-provider="codex" aria-labelledby="usage-codex-heading">
             <h2 id="usage-codex-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-codex" aria-hidden="true"></span>Codex</h2>
             <div class="usage-windows">
               <div id="usage-codex-weekly" class="usage-window" aria-label="Codex weekly usage">
                 <div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">Loading</span></div>
-                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span><span class="usage-freshness" hidden></span></div>
+                <div class="usage-bottom"><span class="usage-reset">Waiting for usage data.</span></div>
               </div>
               <div id="usage-codex-credits" class="usage-window usage-credits" aria-label="Codex credits available">
                 <div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">Loading</span></div>
-                <div class="usage-bottom"><a class="usage-balance-link" href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Codex credit balance" hidden>View balance</a><span class="usage-freshness" hidden></span></div>
+                <div class="usage-bottom"><a class="usage-balance-link" href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer" aria-label="View Codex credit balance" hidden>View balance</a></div>
               </div>
             </div>
+            <p id="usage-codex-note" class="usage-provider-note usage-freshness" hidden></p>
           </section>
         </section>
 
@@ -110,9 +112,9 @@
 
         <div id="board-panel" role="tabpanel" aria-labelledby="board-tab">
         <div id="summary" class="summary" aria-label="Conversation counts">
+          <div class="summary-item cooking"><span class="summary-count" id="count-cooking">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Cooking</span></div>
           <div class="summary-item needs-you"><span class="summary-count" id="count-needs_you">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Needs you</span></div>
           <div class="summary-item ready"><span class="summary-count" id="count-ready">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Ready</span></div>
-          <div class="summary-item cooking"><span class="summary-count" id="count-cooking">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Cooking</span></div>
           <div class="summary-item disconnected"><span class="summary-count" id="count-disconnected">0</span><span class="summary-label"><span class="status-dot" aria-hidden="true"></span>Disconnected</span></div>
         </div>
 
@@ -129,13 +131,13 @@
             <div id="primary-card"></div>
           </section>
           <div id="layout-sections" class="layout-sections">
-        <section id="attention-section" class="session-section" aria-labelledby="attention-heading" hidden>
-          <div class="section-heading"><h2 id="attention-heading">Needs your attention</h2><span id="attention-count" class="section-count"></span></div>
-          <div id="attention-list" class="session-list"></div>
-        </section>
         <section id="cooking-section" class="session-section" aria-labelledby="cooking-heading" hidden>
           <div class="section-heading"><h2 id="cooking-heading">Cooking</h2><span id="cooking-count" class="section-count"></span></div>
           <div id="cooking-list" class="session-list"></div>
+        </section>
+        <section id="attention-section" class="session-section" aria-labelledby="attention-heading" hidden>
+          <div class="section-heading"><h2 id="attention-heading">Needs your attention</h2><span id="attention-count" class="section-count"></span></div>
+          <div id="attention-list" class="session-list"></div>
         </section>
           </div>
         </div>

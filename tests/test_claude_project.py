@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from board_store import BoardStore
 from claude_project_source import (ClaudeProjectSource, ProjectUnavailable, _Client,
-                                   _collect, _session_token, _thread_preview)
+                                   _collect, _session_token, _thread_preview, _idle_thread_completion)
 
 
 CHANNEL = "chan_12345678"
@@ -68,6 +68,96 @@ class ClaudeProjectTests(unittest.TestCase):
         self.assertTrue(health["available"])
         self.assertEqual(rows[IDENT]["status"], "needs_you")
         self.assertEqual(rows[TASK]["status"], "needs_you")
+
+    def idle_reply_client(self, **fields):
+        task = root(thread_status="idle", open_decisions=[], channel_id=CHANNEL,
+                    thread_root_id=THREAD, has_unread=False,
+                    bound_sessions=[{"id": "cse_child123456", "status_bucket": "review_ready"}], **fields)
+        message = reply(channel_id=CHANNEL, thread_root_id=THREAD, author_session_id="cse_child123456",
+                        body="The requested check is complete.")
+        return FakeClient(thread=task, messages=[message])
+
+    def test_idle_latest_assistant_reply_becomes_ready_without_resolving_thread(self):
+        client = self.idle_reply_client()
+        rows, health = self.collect(client)
+        self.assertTrue(health["available"])
+        self.assertEqual(rows[TASK]["status"], "ready")
+        self.assertTrue(rows[TASK]["discovery_eligible"])
+        self.assertEqual(rows[TASK]["preview"], "The requested check is complete.")
+        self.assertEqual(rows[IDENT]["background_reason"], "project_overview")
+
+    def test_idle_completion_preserves_review_on_cache_and_restart_then_new_reply_returns(self):
+        client = self.idle_reply_client()
+        rows, _ = self.collect(client)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "board.sqlite3"
+            with patch("board_store.time.time", return_value=NOW - 3600):
+                store = BoardStore(path)
+            store.apply(rows.values(), NOW)
+            row = store.get("claude:" + TASK)
+            store.review(row["key"], row["event_id"])
+            cached, _ = self.collect(client, (TASK,), rows)
+            restarted = BoardStore(path)
+            cold, _ = self.collect(client, (TASK,))
+            self.assertEqual(rows[TASK]["event_id"], cached[TASK]["event_id"])
+            self.assertEqual(rows[TASK]["event_id"], cold[TASK]["event_id"])
+            restarted.apply(cold.values(), NOW + 1)
+            self.assertFalse(restarted.get(row["key"])["notification_eligible"])
+            client.thread.update(last_reply_at=NOW + 2, reply_count="6")
+            client.messages.append(reply(id="cmsg_newreply123456", created_at=NOW + 2,
+                                         channel_id=CHANNEL, thread_root_id=THREAD, author_session_id="cse_child123456"))
+            fresh, _ = self.collect(client, (TASK,), cached)
+            restarted.apply(fresh.values(), NOW + 3)
+            self.assertNotEqual(row["event_id"], fresh[TASK]["event_id"])
+            self.assertTrue(restarted.get(row["key"])["notification_eligible"])
+
+    def test_new_user_input_never_reuses_an_older_idle_completion(self):
+        client = self.idle_reply_client()
+        rows, _ = self.collect(client)
+        client.thread.update(last_reply_at=NOW, reply_count="6")
+        client.messages.append({"id": "cmsg_user123456", "created_at": NOW, "body": "",
+                                "author_account_id": "account-fixture", "channel_id": CHANNEL, "thread_root_id": THREAD})
+        fresh, _ = self.collect(client, (TASK,), rows)
+        self.assertEqual(fresh[TASK]["status"], "disconnected")
+        self.assertNotIn("_completion_reply_id", fresh[TASK])
+
+    def test_idle_completion_never_overrides_work_or_pending_input(self):
+        for fields, expected in (({"thread_any_session_working": True}, "cooking"),
+                                 ({"thread_status": "needs_input"}, "needs_you"),
+                                 ({"thread_waits_on_live_prompt": True}, "needs_you"),
+                                 ({"open_decisions": [{"id": "decision"}]}, "disconnected"),
+                                 ({"bound_sessions": [{"status_bucket": "blocked"}]}, "disconnected")):
+            client = self.idle_reply_client()
+            client.thread.update(fields)
+            rows, _ = self.collect(client, (TASK,))
+            self.assertEqual(rows[TASK]["status"], expected)
+
+    def test_idle_completion_requires_complete_matching_unchanged_thread(self):
+        for failure in ("wrong_thread", "last_reply_changed", "incomplete", "malformed_cursor", "no_reply"):
+            client = self.idle_reply_client()
+            original_get = client.get
+            count = 0
+
+            def get(path):
+                nonlocal count
+                page = original_get(path)
+                if "/threads/" in path:
+                    count += 1
+                    if failure == "wrong_thread":
+                        return {"data": [client.thread, {**client.messages[0], "thread_root_id": "cmsg_other123456"}]}
+                    if failure == "last_reply_changed" and "limit=1" == path.split("?")[-1]:
+                        return {"data": [{**client.thread, "last_reply_at": NOW}]}
+                    if failure == "incomplete":
+                        return {**page, "next_cursor": "page-" + str(count)}
+                    if failure == "malformed_cursor":
+                        return {**page, "next_cursor": []}
+                    if failure == "no_reply":
+                        return {"data": [client.thread]}
+                return page
+
+            client.get = get
+            with self.subTest(failure=failure):
+                self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
 
     def test_current_task_replaces_overview_in_main_queue_without_changing_status(self):
         client = FakeClient(status="working", thread=root(thread_any_session_working=True))
@@ -346,6 +436,62 @@ class ClaudeProjectTests(unittest.TestCase):
         self.assertEqual(rows[IDENT]["status"], "ready")
         self.assertEqual(rows[TASK]["status"], "cooking")
 
+    def test_explicit_working_thread_does_not_depend_on_optional_aggregate_flag(self):
+        for aggregate in (False, None):
+            with self.subTest(aggregate=aggregate):
+                rows, _ = self.collect(FakeClient(thread=root(thread_status="working",
+                    thread_any_session_working=aggregate, last_reply_at=NOW - 100000)))
+                self.assertEqual(rows[TASK]["status"], "cooking")
+                self.assertNotIn("background_reason", rows[TASK])
+
+    def test_resume_supersedes_old_attention_in_the_same_thread(self):
+        for fields in ({"thread_status": "working", "thread_any_session_working": False},
+                       {"thread_status": "needs_input", "thread_any_session_working": True}):
+            with self.subTest(fields=fields), tempfile.TemporaryDirectory() as folder:
+                client = FakeClient(thread=root())
+                before, _ = self.collect(client)
+                with patch("board_store.time.time", return_value=NOW - 3600):
+                    store = BoardStore(Path(folder) / "board.sqlite3")
+                store.apply(before.values(), NOW)
+                self.assertEqual(store.snapshot()["counts"]["needs_you"], 1)
+                client.thread.update(fields)
+                resumed, _ = self.collect(client, (TASK,), before)
+                store.apply(resumed.values(), NOW + 1)
+                current = store.snapshot()
+                self.assertEqual([row["id"] for row in current["sessions"]], [TASK])
+                self.assertEqual(current["counts"]["needs_you"], 0)
+                self.assertEqual(current["counts"]["cooking"], 1)
+
+    def test_live_thread_prompt_is_not_hidden_by_another_working_session(self):
+        rows, _ = self.collect(FakeClient(thread=root(thread_status="working",
+            thread_any_session_working=True, thread_waits_on_live_prompt=True,
+            bound_sessions=[{"id": "cse_working123", "status_bucket": "working"},
+                            {"id": "cse_blocked123", "status_bucket": "blocked"}])))
+        self.assertEqual(rows[TASK]["status"], "needs_you")
+
+    def test_bound_worker_state_alone_cannot_overwrite_authoritative_thread_state(self):
+        for thread_status, expected in (("needs_input", "needs_you"), ("idle", "disconnected"),
+                                        ("resolved", "ready"), ("unknown", "disconnected")):
+            with self.subTest(thread_status=thread_status):
+                rows, _ = self.collect(FakeClient(thread=root(thread_status=thread_status,
+                    bound_sessions=[{"id": "cse_worker123", "status_bucket": "working"}])), (TASK,))
+                self.assertEqual(rows[TASK]["status"], expected)
+
+    def test_status_observation_time_is_separate_from_message_time_and_not_renewed_by_cache(self):
+        client = FakeClient(thread=root(thread_status="working", last_reply_at=NOW - 100))
+        source = ClaudeProjectSource()
+        with patch("claude_project_source._fetch", side_effect=lambda at, cutoff, tracked, previous:
+                   _collect(at, cutoff, tracked, previous, client)) as fetch:
+            first, _ = source.scan(NOW, NOW - 3600)
+            cached, _ = source.scan(NOW + 1, NOW - 3600)
+            refreshed, _ = source.scan(NOW + 14.99, NOW - 3600)
+        task = next(row for row in first if row["id"] == TASK)
+        self.assertEqual(task["updated_at"], NOW - 100)
+        self.assertEqual(task["project_status_observed_at"], NOW)
+        self.assertEqual(next(row for row in cached if row["id"] == TASK)["project_status_observed_at"], NOW)
+        self.assertEqual(next(row for row in refreshed if row["id"] == TASK)["project_status_observed_at"], NOW + 14.99)
+        self.assertEqual(fetch.call_count, 2)
+
     def test_old_resolved_unread_thread_is_pending_review(self):
         rows, _ = self.collect(FakeClient(thread=root(thread_status="resolved", last_reply_at=NOW - 100000)))
         self.assertEqual(rows[TASK]["status"], "ready")
@@ -509,7 +655,11 @@ class ClaudeProjectTests(unittest.TestCase):
                 self.assertEqual(_session_token(path, NOW), "correct")
                 del cache[key + "user:sessions:claude_code"]
             with patch("claude_project_source._keychain_password", return_value=b"test"), patch("claude_project_source._active_claude_org", return_value="org-a"), patch("claude_project_source._decrypt_chromium", return_value=json.dumps(cache).encode()):
-                with self.assertRaises(ProjectUnavailable):
+                with self.assertRaisesRegex(ProjectUnavailable, "unavailable or expired"):
+                    _session_token(path, NOW)
+            del cache[key + "user:sessions:claude_code user:inference"]
+            with patch("claude_project_source._keychain_password", return_value=b"test"), patch("claude_project_source._active_claude_org", return_value="org-a"), patch("claude_project_source._decrypt_chromium", return_value=json.dumps(cache).encode()):
+                with self.assertRaisesRegex(ProjectUnavailable, "does not include Code-project access"):
                     _session_token(path, NOW)
 
 

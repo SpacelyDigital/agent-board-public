@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parent
 TOP_LEVEL = (
     ".gitignore", "README.md", "PRIVACY.md", "DISTRIBUTION.md", "HARDENING.md", "REAL_ENVIRONMENT_TEST_PLAN.md",
     "APP_STORE_READINESS.md", "APP_STORE_PACKAGING.md", "ENGINEERING_CHECKPOINT.json",
-    "MacApp.swift", "CollectorRuntime.swift", "server.py", "board_store.py",
+    "MacApp.swift", "CollectorRuntime.swift", "ClaudeChatStatus.swift", "ChatGPTChatStatus.swift", "server.py", "board_store.py",
     "codex_source.py", "claude_source.py", "claude_project_source.py",
+    "chatgpt_source.py", "chatgpt_status.py", "chatgpt_monitor.py",
     "chat_links.py", "usage_source.py", "collector_entry.py", "install.py",
     "privacy_network.py", "source_access.py", "sandbox_sources.py",
     "entitlements/sandbox-app.plist", "entitlements/sandbox-helper.plist", "entitlements/sandbox-collector-policy.json",
@@ -24,7 +25,7 @@ TOP_LEVEL = (
     "store-listing/REVIEW_NOTES.md", "store-listing/REVIEW_SAMPLES.md", "store-listing/site/privacy.html", "store-listing/site/support.html", "store-listing/site/site.css",
 )
 TESTS = (
-    "test_board.py", "test_chat_links.py", "test_claude.py", "test_claude_project.py",
+    "test_board.py", "test_chat_links.py", "test_claude.py", "test_claude_project.py", "test_project_fresh_status.py",
     "test_codex.py", "test_usage.py", "test_display_access.py", "fixture_control.py", "native_runtime_smoke.py",
     "test_adapter_redteam.py", "test_http_security.py", "test_store_redteam.py",
     "reader_lifetime_smoke.py", "privacy_network_smoke.py", "stress_browser.py", "stress_browser.cjs",
@@ -46,6 +47,8 @@ TESTS = (
     "native_log_storage_smoke.py",
     "native_startup_wait_smoke.py",
     "test_alert_sounds.py", "native_alert_sounds_smoke.py", "alert_sounds_ui_smoke.cjs",
+    "test_claude_desktop_chats.py", "ClaudeChatStatusProof.swift", "ChatGPTChatStatusProof.swift",
+    "test_desktop_identity_migration.py", "test_chatgpt_catalog.py", "test_chatgpt_status.py", "test_chatgpt_monitor.py",
 )
 SENSITIVE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"

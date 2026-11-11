@@ -46,47 +46,9 @@ documents an installer package as the Store submission format. See [creating
 distribution-signed code](https://developer.apple.com/documentation/xcode/creating-distribution-signed-code-for-the-mac/)
 and [packaging Mac software](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution/).
 
-### Current local build 28 package
+### Transporter checkpoint, November 6, 2026
 
-The current candidate is **0.2.5 build 28** under `com.spacelydigital.agentboard`,
-with `us-external` support and the profile-free unrestricted route. Apple
-Distribution application signing, Mac Installer Distribution signing, builder
-checks and independent exact-package verification passed. The signed installer
-is 10,839,062 bytes with SHA-256
-`ef254f3a65dd67be2b96f1288b4c2cac229f36f4516f00697f587cb9bb85bfcb`.
-Exact main/helper/check-report pins are in
-[ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json).
-
-The independent audit matched all 118 original/extracted app entries, types,
-bytes, modes and internal links; nine compiled Python modules; 33 mapped helper
-resources; and ten main-app PCM sounds. Every sound matches its frozen source,
-helper and main copy. All 96 runtime/build inputs match the frozen source's 180
-selected files plus generated manifest. Recipient-readable licenses, signature
-roles/chains, exact entitlements, exclusions and quarantine absence passed.
-No new SDK, telemetry or remote media dependency was added.
-
-All 427 combined source tests passed with no failures, errors or skips. These
-checks did not install or exercise the signed app. The bounded actual native
-snapshot ends at `2026-11-06T09:46:10.517577+00:00`. The macOS 26 Installer
-reported success and the installed Info.plist view showed version 0.2.5 build 28. Startup
-waited beyond the old timeout and the connected live board recovered without
-Retry or source reselection after owner consent. GUI observations do not
-establish child/token/generation identity.
-
-Ten recorded Preview-button actions produced no visible error. Fart with Sound
-on persisted through normal Quit and Finder reopen. Generic test notifications
-were visible after explicit sends with Sound on and Sound off. Physical sound,
-audible mute and the selected notification sound file were not verified. Actual build 28 provider transitions, login/restart, macOS 13 and
-full native acceptance remain open. Controlled source/derivative-native startup
-and WebKit sound checks are supporting evidence only. Build 28 has not undergone Transporter
-Verify/Deliver, Apple upload, TestFlight, notarization, App Review or release.
-Fresh online revocation, Apple processing, SDK/privacy-origin treatment,
-receipts/updates and Apple-resigned delivery remain separate gates.
-
-### Historical build 27 Transporter checkpoint, November 6, 2026
-
-This historical build 27 snapshot ends on November 6, 2026 at 06:17 UTC.
-It does not describe build 28 Apple verification, delivery or attachment.
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
 
 The owner explicitly approved Verify and Deliver for the exact signed build 27
 package. Verify succeeded at 01:01 local time (America/New_York), with sole
@@ -117,7 +79,7 @@ customer’s Apple-resigned download. Keep the sole warning and processing state
 in the dated checkpoint; track the later Missing Compliance attachment status
 separately.
 
-### Historical build 27 signing status
+### Signing status as of November 6, 2026
 
 Application and Mac Installer Distribution signing completed for build 27 on
 November 5, 2026.
@@ -194,8 +156,8 @@ the requested signing team and every package check. It is not a TestFlight
 configuration. Apple's [TN3125](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles)
 explains that a Mac app without restricted entitlements can use the App Store
 without a profile, while TestFlight always needs one. This path has fixture
-coverage and successful local build 27 and 28 distribution packages. Build 28
-independent full-package verification passed; its actual installed/native and
+coverage and a successful build 27 distribution package at the builder level.
+Independent full-package verification passed; complete installed/native and
 overall Apple processing/compliance acceptance remain separate gates.
 
 To use the provisioned path, replace `--profile-free` with
@@ -290,14 +252,10 @@ iconutil -c icns .local/AgentBoard.iconset -o assets/AgentBoard.icns
    final-identity installation, grants/recovery and native workflows. Exact local
    app/package proof is complete; SDK-origin treatment, fresh online revocation
    and Apple processing/delivery are separately scoped.
-3. Historical build 27 owner-authorized Transporter Verify and Deliver completed
-   with the sole profile/TestFlight warning above and it is attached with Missing
-   Compliance. Build 28 Verify/Deliver and upload have not been performed.
+3. Owner-authorized Transporter Verify and Deliver are complete with the sole
+   profile/TestFlight warning above. Build 27 is attached with Missing Compliance.
    Resolve the unanswered encryption/compliance gate, retain SDK/privacy checks
-   and test the distribution-delivered artifact on a clean Mac. Complete remaining
-   build 28 permission/recovery, native sound and persistence checks; the bounded
-   late-consent startup and Fart/Sound on observations do not establish full native
-   acceptance. If TestFlight is
+   and test the distribution-delivered artifact on a clean Mac. If TestFlight is
    used, it needs its separately reviewed provisioned configuration. Engineering
    signatures do not establish receipts, update migration or TestFlight parity.
 4. Complete actual Codex/Claude workflows, permission denial/revocation, deep

@@ -1,98 +1,69 @@
 # Agent Board
 
-Agent Board is a local Mac dashboard for chats in the Codex Mac app and Claude
-Desktop’s Code tab. It shows which chats are working, waiting for your input or
+Agent Board is a local Mac dashboard for Codex, ChatGPT, Claude Code and Claude
+chats. It shows which chats are working, waiting for your input or
 have a reply ready. Open returns to the original chat. Reviewed moves an item
 into dashboard history until new activity without changing the source chat.
 
-## Build 31 local Mac checkpoint, November 7, 2026
+## Current direct build, November 11, 2026
 
-This checkpoint captures Agent Board 0.2.5 build 31 for Apple silicon. It uses
-SF Pro and an icon toolbar, and includes the owner-provided Fart recording.
-The usage panel shows weekly quota and reset times, plus a separate credit row
-for each provider. Codex shows an explicit balance when reported. Claude’s
-existing usage connection supplies weekly quota, and the direct Mac build
-links to Claude Usage for the prepaid balance.
+The current local repair candidate is **0.2.5 build 52**, using the direct Mac
+app identifier `local.agentboard.display`. This is distinct from the historical
+App Store candidate below. It is not an App Store release or a newly notarized
+distribution.
 
-The local app opened and the Codex balance and Claude balance link appeared
-in the installed dashboard. The usage and audio browser checks and 78 focused
-source tests passed. This is a local direct build checkpoint. The dated Apple
-submission and test records below describe their respective historical builds.
+ChatGPT conversations now use exact IDs from OpenAI's recent-conversation list
+and the desktop app's local catalog, with reply-status requests directly to OpenAI. Codex windows no
+longer create additional ChatGPT cards. Older observations that could not verify
+conversation identity are preserved locally outside conversation lists after a private local backup.
+Usage percentages and credit balances display whole numbers. Claude account
+access failures give actionable guidance, and explicitly disabled usage credits
+are shown as turned off.
 
-## Historical build 29 audio correction, November 6, 2026
+Usage requests back off after failures and respect the provider's retry delay.
+The last successful reading remains visible with its age and retry state.
+Both providers use the same row sizing, including when one has an error.
+Claude project status observation times are kept separate from message times,
+so resuming work can clear an older attention state before a new reply appears.
+Ordinary Claude chat detection checks the nearest complete composer controls;
+long replies no longer require repeated overlapping window scans.
 
-Build 29 uses the recording provided by the app owner for Fart. The complete
-0.31347-second clip was converted to metadata-free PCM with a constant volume
-adjustment. The other nine sounds, ten-choice picker, permissions and provider
-code are unchanged. The original compressed file is outside this source and
-app bundle. The generator preserves the included recording.
+Recent ChatGPT conversations are discovered directly from OpenAI even when the
+desktop catalog has not refreshed. This is not an account-wide history export.
+A Ready event requires an observed active reply
+followed by confirmed completion. Very short replies can finish between checks.
+Catalog-only chats remain accessible in Background with their status marked
+unavailable. Claude ordinary-chat monitoring depends on readable desktop-window
+metadata. Missing access remains visible rather than manufacturing completion.
 
-This is a build 29 input snapshot. The dated build 28 records below and in the
-release documents remain historical evidence; they establish no build 29
-installation, Apple processing or submission readiness.
+## Historical shipping candidate, November 6, 2026
 
-## Historical build 28 checkpoint, November 6, 2026
+This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
 
-The locally signed candidate at this checkpoint was **0.2.5 build 28**, using the registered
-App ID `com.spacelydigital.agentboard`, the profile-free unrestricted route and
-explicit `us-external` optional support. Apple Distribution application signing,
-Mac Installer Distribution signing, builder checks and independent exact-package
-verification passed. The signed package is 10,839,062 bytes. Exact hashes and
-scope are recorded in [ENGINEERING_CHECKPOINT.json](ENGINEERING_CHECKPOINT.json).
+The current shipping preparation is **0.2.5 build 27**, using the registered App
+ID `com.spacelydigital.agentboard` and explicit US-only optional support. Both
+application and installer signing completed, and the builder’s exact-package
+checks passed. Independent verification of the exact signed app and installer
+also passed. On macOS 26, Installer reported success and normal launch reached
+initial Setup and the Codex read-only picker without a Gatekeeper override.
+No source grant or provider workflow has been exercised yet. On macOS 13, the separate ad-hoc preview 27 passed bounded
+no-source dashboard, local Privacy navigation, Light-mode Quit/reopen persistence,
+Sample-board review/return and closed-window reopen checks. No connected-provider,
+complete minimum-OS or signed-distribution pass follows from those checks.
 
-All **427 combined source tests** passed with no failures, errors or skips.
-These source and static package checks do not establish installed behavior.
-The bounded actual native snapshot ends at `2026-11-06T09:46:10.517577+00:00`.
-On macOS 26, Installer reported success and the installed Info.plist view showed version
-0.2.5 build 28. Startup waited beyond the old timeout. After the owner allowed
-the macOS data prompt, the live board recovered without Retry or source
-reselection. The GUI does not establish child, token or generation identity.
-
-Ten recorded Preview-button actions produced no visible error. Fart with Sound
-on persisted through normal Quit and Finder reopen. Generic test notifications
-were visible after explicit sends with Sound on and Sound off. Physical sound,
-audible mute and the selected notification sound file were not verified.
-Actual build 28 provider transitions, login/restart and macOS 13 remain unverified.
-Build 28 has not undergone
-Transporter Verify or Deliver, Apple upload, TestFlight, notarization, App Review
-or release. Submission readiness remains false.
-
-Build 28 keeps the collector running after the original 100 health attempts and
-shows a waiting state while initial source validation and scanning finish. It
-uses a monotonic 300-second hard deadline, one child/token/generation and
-serialized authenticated health checks. The deadline is cooperative on the
-main queue and cannot forcibly interrupt synchronous native bookmark or file
-operations. Controlled source/native checks support this change; they are not
-packaged startup or macOS permission proof. See
-[remaining release gates](APP_STORE_READINESS.md).
-
-## Historical build 27 shipping checkpoint
-
-The following build 27 status was recorded on November 6, 2026 at 06:17 UTC.
-Its application/installer signing, builder checks and independent exact-package
-verification passed. On macOS 26, Installer reported success and normal launch
-reached initial Setup and the Codex read-only picker without a Gatekeeper
-override. That snapshot included no source grant or provider workflow.
-A later build 27 login/permission run timed out; allowing the late macOS consent
-and choosing Retry recovered monitoring. Its cause was not traced and remains a
-historical failure. These observations do not establish build 28 outcomes.
-
-The App Store Connect record exists as **Agent Board: AI Reply Alerts**.
-Draft version 0.2.5, the support URL, manual release, subtitle and Developer Tools
-category were saved and verified after reload. Historical build 27 Transporter
-Verify succeeded with warning 90889; Deliver completed, and build 27 was saved
-and reloaded as attached to version 0.2.5 with Missing Compliance. The encryption
-question was canceled unanswered. This history does not describe build 28 Apple
-verification, delivery or attachment. The profile-free route is not TestFlight
-validation, and no overall processing/compliance, App Review or release
+The App Store Connect record now exists as **Agent Board: AI Reply Alerts**.
+Draft version 0.2.5, the support URL and manual release were saved and verified
+after reload; the subtitle and Developer Tools category were also saved and
+verified. On November 6, Transporter Verify succeeded with warning 90889 and
+Deliver completed at 01:07 local time. Build 27 was later selectable and its
+attachment to version 0.2.5 was saved and reloaded, with status Missing Compliance.
+The encryption question was canceled unanswered. This profile-free package is
+not TestFlight-eligible; no overall processing/compliance, App Review or release
 acceptance is claimed.
-
-On macOS 13, the separate ad-hoc preview 27 passed bounded no-source dashboard,
-local Privacy navigation, Light-mode Quit/reopen persistence, Sample-board
-review/return and closed-window reopen checks. Connected-provider, complete
-minimum-OS and signed-distribution acceptance remain open. See
-[packaging status](APP_STORE_PACKAGING.md). The following build 25 results
-remain historical evidence for that earlier preview.
+Submission readiness remains false. See
+[packaging status](APP_STORE_PACKAGING.md) and
+[remaining release gates](APP_STORE_READINESS.md). The following build 25
+results remain historical evidence for that earlier preview.
 
 ## Preserved build 25 checkpoint
 
@@ -130,8 +101,8 @@ VoiceOver and process/network cleanup proof remain separate.
 
 This source includes later shipping changes alongside the preserved build 25
 history. The separate public build 25 snapshot and its verified local/private
-backups remain unchanged. This checkpoint does not establish a final build 28
-source/artifact backup. Private repository ancestry, user data and raw validation evidence remain
+backups remain unchanged; a final build 27 source/artifact backup is not claimed
+here. Private repository ancestry, user data and raw validation evidence remain
 excluded from clean source distribution. See
 [APP_STORE_READINESS.md](APP_STORE_READINESS.md) for scope and release gates.
 
@@ -153,10 +124,8 @@ Appearance provides five layouts with Ledger as the default, and fifteen themes
 with light and dark modes. View offers bounded text zoom, Keep on Top and Full
 Screen. Effects respect Reduce motion and pause when web content is hidden;
 background effects have no sound. Appearance offers ten original local alert
-sounds and a Preview button: soft-ding, chime, bell, glass, marimba, arcade,
-radar, space-signal, pop and fart. Sound on uses your selection for new Ready or
-Needs you events; Sound off mutes both web and native alerts. The selected sound
-persists locally. Native notifications require separate opt-in. VoiceOver,
+sounds and a Preview button. Sound on uses your selection for new Ready or
+Needs you events. Native notifications require separate opt-in. VoiceOver,
 actual sound output and minimized/closed-window energy use remain release gates.
 
 Close the window to keep monitoring from the menu bar. Quit stops the owned
@@ -218,9 +187,8 @@ from the installed app. [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md) describ
 explicit local packaging inputs; the build tool does not install or upload.
 [DISTRIBUTION.md](DISTRIBUTION.md) and [APP_STORE_READINESS.md](APP_STORE_READINESS.md)
 separate source, fixture, native and actual-provider evidence. All prior private
-checkpoints remain preserved. Historical delivered build 27 is attached to
-version 0.2.5 with Missing Compliance. No build 28 Apple verification, upload,
-App Review or release result is established.
+checkpoints remain preserved. Delivered build 27 is attached to version 0.2.5
+with Missing Compliance; no App Review or release result is established.
 
 Agent Board is independent of OpenAI and Anthropic. Their names belong to their
 owners; provider compatibility and distribution authorization remain release

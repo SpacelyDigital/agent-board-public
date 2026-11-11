@@ -56,6 +56,7 @@ def _session_token(folder: Path, now: float) -> str:
         cache = json.loads(_decrypt_chromium(base64.b64decode(encoded, validate=True), password))
         prefix = "acct:" + account + "|"
         candidates = []
+        has_session_scope = False
         for cache_key, entry in cache.items():
             if not isinstance(cache_key, str) or not cache_key.startswith(prefix) or not isinstance(entry, dict):
                 continue
@@ -63,6 +64,7 @@ def _session_token(folder: Path, now: float) -> str:
             if len(parts) != 3 or parts[1] != organization or not parts[2].startswith(ORIGIN + ":"):
                 continue
             scopes = parts[2][len(ORIGIN) + 1:].split()
+            has_session_scope = has_session_scope or "user:sessions:claude_code" in scopes
             expires = entry.get("expiresAt")
             if ("user:sessions:claude_code" in scopes and isinstance(expires, (int, float))
                     and not isinstance(expires, bool) and math.isfinite(expires) and expires > now * 1000
@@ -70,6 +72,8 @@ def _session_token(folder: Path, now: float) -> str:
                     and all(33 <= ord(char) <= 126 for char in entry["token"])):
                 candidates.append((expires, entry["token"]))
         if not candidates:
+            if not has_session_scope:
+                raise ProjectUnavailable("Claude's current desktop sign-in does not include Code-project access. Open a Code project in Claude, then retry.")
             raise ProjectUnavailable("Claude's existing Code-session sign-in is unavailable or expired. Open Claude to refresh its own sign-in.")
         return max(candidates, key=lambda item: item[0])[1]
     except ProjectUnavailable:
@@ -125,9 +129,13 @@ def _project_status(session: dict) -> tuple[str, str]:
 
 def _thread_status(root: dict) -> tuple[str, str]:
     # These fields describe the user-facing thread itself, not a child outcome.
-    if root.get("thread_any_session_working") is True:
+    # A current live prompt remains actionable even if another bound worker
+    # is busy. An older needs_input label alone cannot override resumed work.
+    if root.get("thread_waits_on_live_prompt") is True:
+        return "needs_you", "This project thread needs your input."
+    if root.get("thread_status") == "working" or root.get("thread_any_session_working") is True:
         return "cooking", "Claude is working in this project thread."
-    if root.get("thread_status") == "needs_input" or root.get("thread_waits_on_live_prompt") is True:
+    if root.get("thread_status") == "needs_input":
         return "needs_you", "This project thread needs your input."
     if root.get("thread_status") == "resolved":
         return "ready", "This project thread is resolved."
@@ -232,6 +240,82 @@ def _thread_preview(client: _Client, channel_id: str, root: dict, status: str) -
     return {}
 
 
+def _idle_reply_revision(root: dict) -> list | None:
+    """Only an explicitly idle thread without an outstanding prompt can finish."""
+    if (root.get("thread_status") != "idle" or root.get("thread_any_session_working") is not False
+            or root.get("thread_waits_on_live_prompt") is True):
+        return None
+    decisions = root.get("open_decisions")
+    if decisions not in (None, []) or (decisions is None and root.get("thread_waits_on_live_prompt") is not False):
+        return None
+    if any(item.get("status_bucket") in ("working", "blocked") for item in _bound_sessions(root)):
+        return None
+    if not _timestamp(root.get("last_reply_at")):
+        return None
+    return [root.get("id"), root.get("last_reply_at"), root.get("reply_count")]
+
+
+def _idle_thread_completion(client: _Client, channel_id: str, root: dict) -> dict:
+    """Confirm the latest same-thread reply, with a stable idle root before/after.
+
+    An idle thread can remain open after an assistant finishes. Child-session
+    outcomes do not establish that the thread has replied to its latest input.
+    """
+    revision = _idle_reply_revision(root)
+    if revision is None:
+        return {}
+    thread_id = root["id"]
+    path = f"/v1/code/channels/{channel_id}/threads/{thread_id}"
+    cursor = ""
+    seen_cursors = set()
+    messages = []
+    # The API is oldest first. Eight bounded pages cover long active threads;
+    # an incomplete read remains unknown and cannot manufacture completion.
+    for page_number in range(8):
+        page = client.get(path + "?" + urlencode({"limit": 100, **({"cursor": cursor} if cursor else {})}))
+        rows = _rows(page)
+        if page_number == 0:
+            current = next((item for item in rows if item.get("id") == thread_id), {})
+            if _idle_reply_revision(current) != revision:
+                return {}
+        for item in rows:
+            if item.get("channel_id") != channel_id or item.get("thread_root_id") != thread_id:
+                return {}
+            if (item.get("id") != thread_id and not item.get("server_notice")
+                    and (item.get("author_account_id") or item.get("author_agent_id"))):
+                if not _MESSAGE.fullmatch(str(item.get("id", ""))) or not _timestamp(item.get("created_at")):
+                    return {}
+                messages.append(item)
+        next_cursor = page.get("next_cursor")
+        if next_cursor is None or next_cursor == "":
+            break
+        if (not isinstance(next_cursor, str) or len(next_cursor) > 4096
+                or next_cursor in seen_cursors or any(ord(char) < 32 or ord(char) == 127 for char in next_cursor)):
+            return {}
+        seen_cursors.add(next_cursor)
+        cursor = next_cursor
+    else:
+        return {}
+    if not messages:
+        return {}
+    latest_at = max(_timestamp(item["created_at"]) for item in messages)
+    latest = {item["id"]: item for item in messages if _timestamp(item["created_at"]) == latest_at}
+    if len(latest) != 1 or latest_at != _timestamp(root["last_reply_at"]):
+        return {}
+    message = next(iter(latest.values()))
+    if message.get("author_account_id"):
+        return {}
+    preview = _preview(message, "ready")
+    if not preview:
+        return {}
+    final_page = client.get(path + "?limit=1")
+    final_root = next((item for item in _rows(final_page) if item.get("id") == thread_id), {})
+    if (final_root.get("channel_id") != channel_id or final_root.get("thread_root_id") != thread_id
+            or _idle_reply_revision(final_root) != revision):
+        return {}
+    return {**preview, "_idle_reply_revision": revision, "_completion_reply_id": message["id"]}
+
+
 def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[str, dict],
              client: _Client | None = None) -> tuple[list[dict], dict]:
     client = client or _Client(_session_token(CLAUDE_DESKTOP, now))
@@ -320,8 +404,23 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
             task_id = prefix + thread_id
             status, detail = _thread_status(root)
             unread = root.get("has_unread") is True
-            discovery = status in ("cooking", "needs_you") or (status == "ready" and unread)
             updated = _timestamp(root.get("last_reply_at")) or _timestamp(root.get("created_at"))
+            completion = {}
+            old = previous.get(task_id, {})
+            revision = _idle_reply_revision(root)
+            if revision is not None and (task_id in tracked_ids or unread or updated >= cutoff):
+                if old.get("_idle_reply_revision") == revision and old.get("_completion_reply_id"):
+                    completion = {key: old[key] for key in ("preview", "preview_kind", "preview_at",
+                                                           "_idle_reply_revision", "_completion_reply_id") if key in old}
+                else:
+                    try:
+                        completion = _idle_thread_completion(client, channel_id, root)
+                    except ProjectUnavailable:
+                        pass
+                if completion:
+                    status, detail = "ready", "Claude finished responding in this project thread."
+            discovery = status in ("cooking", "needs_you") or (status == "ready" and
+                        (unread or (bool(completion) and updated >= cutoff)))
             # The board begins tracking project tasks at activation. An older
             # task is still addressable in Background, but an old needs_input
             # label or unread flag alone must not populate the main queue.
@@ -329,7 +428,7 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
             # and service restarts. BoardStore's explicit placement preference
             # can override it; genuine new activity clears it automatically.
             older_thread = (updated > 0 and updated < cutoff
-                            and root.get("thread_any_session_working") is not True
+                            and status != "cooking"
                             and root.get("thread_waits_on_live_prompt") is not True)
             if not discovery and not older_thread and task_id not in tracked_ids:
                 continue
@@ -340,16 +439,20 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
             # Its bound session outcome never substitutes for the thread state.
             caption = next((value for value in titles if value), "") or _short(root.get("thread_preview"), 140)
             caption = caption or _short(_literal_preview(root.get("body")), 100) or "Project thread"
-            token = _event_id(task_id, status, [thread_id, root.get("last_reply_at"), root.get("reply_count"),
-                                               root.get("thread_status"), root.get("thread_any_session_working"),
-                                               root.get("thread_waits_on_live_prompt")])
+            event_values = [thread_id, root.get("last_reply_at"), root.get("reply_count"),
+                            root.get("thread_status"), root.get("thread_any_session_working"),
+                            root.get("thread_waits_on_live_prompt")]
+            if completion:
+                event_values.append(completion["_completion_reply_id"])
+            token = _event_id(task_id, status, event_values)
             row = _base(channel, task_id, status, detail, updated, token, title + " · " + caption, thread_id)
             row.update(pending_review=status == "ready" and unread,
                        discovery_eligible=discovery or older_thread)
             if older_thread:
                 row["background_reason"] = "older_project_thread"
-            old = previous.get(task_id, {})
-            if old.get("event_id") == token:
+            if completion:
+                row.update(completion)
+            elif old.get("event_id") == token:
                 row.update({k: old[k] for k in ("preview", "preview_kind", "preview_at") if k in old})
             elif status in ("ready", "needs_you"):
                 try:
@@ -396,6 +499,12 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
         for result, failures in pool.map(read_channel, channels):
             observations.extend(result)
             errors.extend(failures)
+    # A thread can resume before its last_reply_at changes. Keep the receipt's
+    # status observation time separate from that message timestamp so a fresh
+    # active state can supersede old attention without treating cached polls as
+    # new provider evidence. The source cache preserves this value unchanged.
+    for observation in observations:
+        observation["project_status_observed_at"] = now
     health = {"id": "claude_projects", "name": "Claude projects", "available": not errors,
               "detail": ("Reading project and task status from Claude." if not errors else
                          "Some Claude project statuses could not be read. " + errors[0]),
@@ -434,9 +543,13 @@ class ClaudeProjectSource:
         self._health: dict = {}
 
     def scan(self, now: float, cutoff: float) -> tuple[list[dict], dict]:
-        if now - self._at >= POLL_SECONDS:
+        elapsed = now - self._at
+        # The monitor uses a monotonic start-to-start cadence. Allow clock and
+        # call-site jitter at the boundary rather than skipping a whole cycle.
+        if elapsed >= POLL_SECONDS or math.isclose(elapsed, POLL_SECONDS, rel_tol=0, abs_tol=0.05):
             previous = {row["id"]: {k: row[k] for k in ("event_id", "preview", "preview_kind", "preview_at",
-                                                       "_overlap_activity_at", "_coordinator_bound_to_thread") if k in row}
+                                                       "_overlap_activity_at", "_coordinator_bound_to_thread",
+                                                       "_idle_reply_revision", "_completion_reply_id") if k in row}
                         for row in self._observations}
             try:
                 self._observations, self._health = _fetch(now, cutoff, self.tracked_ids, previous)

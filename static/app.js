@@ -6,8 +6,9 @@
   const accessToken = typeof window.__agentBoardAccessToken === "string" ? window.__agentBoardAccessToken : null;
   delete window.__agentBoardAccessToken;
   const nativeBoard = window.webkit?.messageHandlers?.agentBoard;
-  const labels = { cooking: "Cooking", needs_you: "Needs you", ready: "Ready", disconnected: "Disconnected" };
-  const priority = { needs_you: 0, ready: 1, disconnected: 2, cooking: 3 };
+  const labels = { cooking: "Cooking", needs_you: "Needs you", ready: "Ready", disconnected: "Disconnected", idle: "Open" };
+  const providerNames = { codex: "Codex", claude: "Claude", chatgpt: "ChatGPT" };
+  const priority = { cooking: 0, needs_you: 1, ready: 1, disconnected: 2 };
   const elements = Object.fromEntries([
     "connection", "connection-text", "summary", "monitor-message", "action-message", "conversation-updates", "loading", "empty", "sample-controls", "usage",
     "attention-section", "attention-list", "attention-count", "cooking-section", "cooking-list", "cooking-count",
@@ -27,9 +28,9 @@
     { provider: "codex", window: "weekly" }
   ].map(item => ({ ...item, element: document.getElementById(`usage-${item.provider}-${item.window}`) }));
   const creditRows = ["claude", "codex"].map(id => ({id, element: document.getElementById(`usage-${id}-credits`)}));
-  const percentFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
-  const creditFormat = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 21 });
-  const dollarFormat = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" });
+  const percentFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+  const creditFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+  const dollarFormat = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
   let state = null;
   let activeTab = "board";
   let connected = false;
@@ -100,7 +101,9 @@
   function findSession(key) { return allSessions().find(session => session.key === key); }
   function isSnoozed(session) { return Number(session.snoozed_until || 0) > now(); }
   function visibleStatus(session) {
-    return session.source_unavailable === true || !labels[session.status] ? "disconnected" : session.status;
+    if (session.source_unavailable === true) return "disconnected";
+    if (session.catalog_only === true) return "disconnected";
+    return session.open_only === true ? "idle" : labels[session.status] ? session.status : "disconnected";
   }
 
   function makeCard(key) {
@@ -111,7 +114,8 @@
     const meta = make("div", "session-meta");
     const provider = make("span", "provider");
     const project = make("span", "project");
-    meta.append(provider, make("span", "meta-separator", "/"), project);
+    const separator = make("span", "meta-separator", "/");
+    meta.append(provider, separator, project);
     const snoozeNote = make("span", "snooze-note");
     snoozeNote.hidden = true;
     const previewToggle = make("button", "preview-toggle");
@@ -167,14 +171,15 @@
     actions.append(open, review, options);
     side.append(status, actions);
     card.append(main, side);
-    return { card, title, provider, project, detail, badge, age, open, review, snoozeNote, previewToggle, previewContent, previewText, options, menuToggle, menu, menuItems };
+    return { card, title, provider, project, separator, detail, badge, age, open, review, snoozeNote, previewToggle, previewContent, previewText, options, menuToggle, menu, menuItems };
   }
 
   function updateCard(session, archived, background = false) {
     let item = cards.get(session.key);
     if (!item) { item = makeCard(session.key); cards.set(session.key, item); }
-    const { card, title, provider, project, detail, badge, age, open, review, snoozeNote, previewToggle, previewContent, previewText, menuToggle, menuItems } = item;
-    const status = labels[session.status] ? session.status : "disconnected";
+    const { card, title, provider, project, detail, badge, age, open, review, snoozeNote, previewToggle, previewContent, previewText, options, menuToggle, menuItems } = item;
+    const openOnly = session.open_only === true;
+    const status = openOnly && !session.catalog_only ? "idle" : labels[session.status] ? session.status : "disconnected";
     const sourceUnavailable = session.source_unavailable === true;
     card.classList.toggle("history-session", archived);
     card.classList.toggle("background-session", background);
@@ -182,15 +187,16 @@
     card.dataset.status = visibleStatus(session);
     setText(title, session.title || "Untitled conversation");
     title.title = session.title || "Untitled conversation";
-    setText(provider, session.provider === "codex" ? "Codex" : session.provider === "claude" ? "Claude" : session.provider);
+    setText(provider, providerNames[session.provider] || session.provider);
     setText(project, session.project_name || projectName(session.cwd));
+    project.hidden = item.separator.hidden = !session.project_name && !session.cwd;
     project.title = session.cwd || session.project_name || "";
     const detailText = !connected ? `Last known state: ${labels[status]}.` : sourceUnavailable ? session.source_unavailable_detail || "This source is unavailable. Reconnect it to confirm new activity." : session.detail || "";
     setText(detail, detailText);
     const uncertainActivity = status === "cooking" && /\binferred\b|unconfirmed|could not be confirmed/i.test(detailText);
     detail.hidden = !detailText || (connected && !sourceUnavailable && (status === "ready" || (status === "cooking" && !uncertainActivity)));
     detail.title = detailText;
-    setText(badge, archived ? "Reviewed" : !connected ? "Unconfirmed" : sourceUnavailable ? `Last known: ${labels[status]}` : labels[status]);
+    setText(badge, session.catalog_only ? "Status unavailable" : archived ? "Reviewed" : !connected ? "Unconfirmed" : sourceUnavailable ? `Last known: ${labels[status]}` : labels[status]);
     badge.dataset.status = archived || !connected || sourceUnavailable ? "disconnected" : status;
     badge.title = detailText;
     const displayedStatus = visibleStatus(session);
@@ -200,6 +206,7 @@
     age.dataset.hasStart = session.started_at ? "true" : "false";
     age.dataset.archived = archived ? "true" : "false";
     age.dataset.background = background ? "true" : "false";
+    age.hidden = openOnly;
     updateAge(age);
     const isPending = pending.has(session.key);
     const snoozed = isSnoozed(session);
@@ -227,7 +234,8 @@
     setText(review, isPending ? "Working…" : archived ? "Restore" : "Reviewed");
     review.disabled = !connected || isPending || (!archived && status === "cooking");
     review.title = !archived && status === "cooking" ? "You can mark this reviewed when the agent stops working." : archived ? "Return this conversation to the board" : "Remove this conversation from the board";
-    menuToggle.disabled = !connected || isPending;
+    options.hidden = openOnly;
+    menuToggle.disabled = !connected || isPending || options.hidden;
     menuItems.rename.disabled = !connected || isPending;
     menuItems["automatic-title"].hidden = !session.title_override;
     menuItems.move.dataset.placement = background ? "board" : "background";
@@ -295,7 +303,7 @@
       const displayedStatus = visibleStatus(session);
       item.button.dataset.status = displayedStatus;
       setText(item.title, session.title || "Untitled conversation");
-      const provider = session.provider === "claude" ? "Claude" : session.provider === "codex" ? "Codex" : session.provider;
+      const provider = providerNames[session.provider] || session.provider;
       setText(item.meta, `${provider} / ${session.project_name || projectName(session.cwd)}`);
       const sourceUnavailable = session.source_unavailable === true;
       const statusLabel = labels[session.status] || "Disconnected";
@@ -317,9 +325,8 @@
   function renderWorkspace(sessions, attention, cooking) {
     const split = layout === "split";
     const focus = layout === "focus";
-    if (split && !sessions.some(session => session.key === selectedKey)) selectedKey = attention[0]?.key || cooking[0]?.key || null;
-    const oldest = attention.filter(session => ["ready", "needs_you"].includes(visibleStatus(session))).sort((a, b) => Number(a.attention_since || a.updated_at || 0) - Number(b.attention_since || b.updated_at || 0) || String(a.key).localeCompare(String(b.key)))[0];
-    primaryKey = split ? selectedKey : focus ? (oldest || attention[0] || cooking[0])?.key || null : null;
+    if (split && !sessions.some(session => session.key === selectedKey)) selectedKey = sessions[0]?.key || null;
+    primaryKey = split ? selectedKey : focus ? sessions[0]?.key || null : null;
     const selected = sessions.find(session => session.key === primaryKey);
     elements["split-queue"].hidden = !split || !sessions.length;
     elements["layout-primary"].hidden = !selected;
@@ -335,7 +342,9 @@
     reconcileList(elements["cooking-list"], split ? [] : otherCooking, false);
     const primaryContainer = elements["primary-card"];
     if (selected) {
-      setText(elements["primary-heading"], focus && oldest ? "Oldest waiting conversation" : "Selected conversation");
+      const status = visibleStatus(selected);
+      const heading = focus && status !== "disconnected" ? status === "cooking" ? "Cooking" : "Latest waiting conversation" : "Selected conversation";
+      setText(elements["primary-heading"], heading);
       const node = updateCard(selected, false);
       if (primaryContainer.firstElementChild !== node) primaryContainer.replaceChildren(node);
     } else if (primaryContainer.children.length) primaryContainer.replaceChildren();
@@ -377,7 +386,8 @@
       const available = connected && source.available;
       const item = make("span", `source ${available ? "available" : "unavailable"}`);
       item.append(make("span", "source-dot"), make("span", "source-name", source.name || source.id));
-      const health = !connected ? "unconfirmed" : source.sample === true ? "sample" : source.available ? "connected" : "unavailable";
+      const sourceStatus = source.waiting_for_chat === true ? "waiting for a chat" : "connected";
+      const health = !connected ? "unconfirmed" : source.sample === true ? "sample" : source.available ? sourceStatus : "unavailable";
       item.append(make("span", "source-health", health));
       item.title = source.detail || health;
       fragment.append(item);
@@ -415,26 +425,19 @@
       const reset = typeof window?.reset_at === "number" && Number.isFinite(window.reset_at) && window.reset_at > 0 ? window.reset_at : null;
       const loading = (provider?.loading && connected) || (!state && !attemptedConnection);
       const localReading = provider?.source === "local_record" || provider?.source === "local_export";
-      const sampleReading = state?.sample_mode === true && provider?.source === "sample";
       const stale = hasReading && (!connected || provider?.stale || !provider?.available);
       const value = item.element.querySelector(".usage-value");
       const resetText = item.element.querySelector(".usage-reset");
-      const freshness = item.element.querySelector(".usage-freshness");
       item.element.classList.toggle("stale", !!stale);
       item.element.classList.toggle("unavailable", !hasReading);
       if (loading && !hasReading) {
         setText(value, "Loading");
         setText(resetText, "Waiting for usage data.");
         resetText.title = "";
-        freshness.hidden = true;
       } else {
         setText(value, hasReading ? `${percentFormat.format(reading)}% remaining` : "Unavailable");
-        setText(resetText, reset ? resetCountdown(reset) : hasReading ? "Reset time unavailable." : !connected ? "The monitor is disconnected." : "No usage reading is available.");
+        setText(resetText, reset ? resetCountdown(reset) : hasReading ? "Reset time unavailable." : "");
         resetText.title = reset ? `Scheduled reset: ${localTimestamp(reset)}` : provider?.error || "";
-        const showFreshness = hasReading && (sampleReading || localReading || stale);
-        freshness.hidden = !showFreshness;
-        setText(freshness, sampleReading ? "Sample reading" : `${stale ? "Stale · " : ""}${updated ? `${localReading ? "Observed locally" : "Updated"} ${elapsed(updated)} ago` : "No previous reading"}`);
-        freshness.title = updated ? `Last usage reading: ${localTimestamp(updated)}` : "";
       }
       item.element.title = [localReading ? "This is a cached provider reading from local session data." : "", provider?.error, updated ? `Last usage reading: ${localTimestamp(updated)}` : ""].filter(Boolean).join("\n");
     }
@@ -443,19 +446,50 @@
       const credit = provider?.credits;
       const sample = state?.sample_mode === true;
       const hasBalance = credit?.unit === (id === "claude" ? "USD" : "credits") && Number.isFinite(credit.amount);
-      const loading = !hasBalance && ((provider?.loading && connected) || (!state && !attemptedConnection));
-      const stale = hasBalance && !sample && (!connected || credit.stale === true);
-      const observed = hasBalance && Number.isFinite(credit.observed_at) && credit.observed_at > 0 ? credit.observed_at : null;
+      const creditsDisabled = id === "claude" && credit?.status === "disabled" && !hasBalance;
+      const loading = !hasBalance && !creditsDisabled && ((provider?.loading && connected) || (!state && !attemptedConnection));
+      const stale = (hasBalance || creditsDisabled) && !sample && (!connected || provider?.stale || credit.stale === true);
       const balance = id === "claude" ? dollarFormat : creditFormat;
-      element.classList.toggle("unavailable", !hasBalance);
+      element.classList.toggle("unavailable", !hasBalance && !creditsDisabled);
       element.classList.toggle("stale", stale);
-      setText(element.querySelector(".usage-value"), hasBalance ? balance.format(credit.amount) : loading ? "Loading" : "Unavailable");
-      element.querySelector(".usage-balance-link").hidden = hasBalance || loading || sample || document.documentElement.dataset.providerMarks === "off";
-      const freshness = element.querySelector(".usage-freshness");
-      freshness.hidden = !hasBalance || (!sample && !stale);
-      setText(freshness, sample ? "Sample balance" : stale ? observed ? `Stale · Updated ${elapsed(observed)} ago` : "Stale" : "");
-      freshness.title = observed ? `Last balance reading: ${localTimestamp(observed)}` : "";
+      setText(element.querySelector(".usage-value"), hasBalance ? balance.format(credit.amount) : creditsDisabled ? "Turned off" : loading ? "Loading" : "Unavailable");
+      const balanceLink = element.querySelector(".usage-balance-link");
+      balanceLink.hidden = hasBalance || loading || sample || document.documentElement.dataset.providerMarks === "off";
+      setText(balanceLink, creditsDisabled ? "Manage credits" : "View balance");
+      balanceLink.setAttribute("aria-label", creditsDisabled ? "Manage Claude usage credits" : `View ${id === "claude" ? "Claude" : "Codex"} credit balance`);
     }
+    let hasNotes = false;
+    for (const id of ["claude", "codex"]) {
+      const provider = state?.usage?.find(source => source.id === id);
+      const note = document.getElementById(`usage-${id}-note`);
+      const credit = provider?.credits;
+      const hasUsage = provider?.windows?.some(window => Number.isFinite(window.remaining_percent) && window.remaining_percent >= 0 && window.remaining_percent <= 100);
+      const hasCredits = credit?.unit === (id === "claude" ? "USD" : "credits") && (Number.isFinite(credit.amount) || (id === "claude" && credit.status === "disabled"));
+      const updated = [hasUsage ? provider?.updated_at : null, hasCredits ? credit?.observed_at : null].filter(value => Number.isFinite(value) && value > 0);
+      const observed = updated.length ? Math.min(...updated) : null;
+      const stale = !connected || provider?.stale || credit?.stale;
+      const local = provider?.source === "local_record" || provider?.source === "local_export";
+      const sample = state?.sample_mode === true;
+      const rateLimited = provider?.error_code === "rate_limited";
+      const accessNeeded = provider?.error_code === "claude_account_access_required";
+      const retry = Number.isFinite(provider?.retry_at) && provider.retry_at > now()
+        ? `Retrying in ${Math.max(1, Math.ceil((provider.retry_at - now()) / 60))}m.` : "";
+      let text = "";
+      if (sample) text = "Sample usage and balance.";
+      else if (rateLimited) text = ["Usage checks are temporarily rate limited.", observed ? `Last reading ${elapsed(observed)} ago.` : "", retry].filter(Boolean).join(" ");
+      else if (accessNeeded) text = ["Allow Claude account access in Settings.", observed ? `Last reading ${elapsed(observed)} ago.` : ""].filter(Boolean).join(" ");
+      else if (stale && observed) text = `This reading is stale; last updated ${elapsed(observed)} ago.`;
+      else if (!connected && attemptedConnection) text = "The monitor is disconnected.";
+      else if (provider?.error) text = provider.error;
+      else if (local && observed) text = `Observed locally ${elapsed(observed)} ago.`;
+      else if (provider && !provider.available && !provider.loading) text = "No usage reading is available.";
+      note.hidden = !text;
+      note.classList.toggle("stale", !!stale || rateLimited);
+      setText(note, text);
+      note.title = observed ? `Last usage reading: ${localTimestamp(observed)}` : "";
+      hasNotes ||= !!text;
+    }
+    elements.usage.classList.toggle("has-notes", hasNotes);
   }
 
   function render() {
@@ -479,8 +513,8 @@
       const aStatus = visibleStatus(a), bStatus = visibleStatus(b);
       const statusOrder = (priority[aStatus] ?? 2) - (priority[bStatus] ?? 2);
       if (statusOrder) return statusOrder;
-      const ageOrder = Number(a.attention_since || a.updated_at || 0) - Number(b.attention_since || b.updated_at || 0);
-      return (["ready", "needs_you"].includes(aStatus) ? ageOrder : -ageOrder) || String(a.key).localeCompare(String(b.key));
+      const newestFirst = Number(b.attention_since || b.updated_at || 0) - Number(a.attention_since || a.updated_at || 0);
+      return newestFirst || String(a.key).localeCompare(String(b.key));
     });
     const attention = sessions.filter(session => visibleStatus(session) !== "cooking");
     const cooking = sessions.filter(session => visibleStatus(session) === "cooking");
@@ -489,7 +523,7 @@
     const noSources = !(state.sources || []).some(source => source.available === true);
     setText(elements.empty.querySelector("h2"), !connected ? "Waiting for your monitor." : noSources ? "No sources are connected." : "Your board is clear.");
     setText(elements.empty.querySelector("p"), !connected ? "Reconnect the local monitor to confirm conversation states." : noSources ? "Check the source connections below before waiting for new activity." : "New activity in Codex or Claude will appear here.");
-    for (const status of Object.keys(labels)) {
+    for (const status of Object.keys(priority)) {
       setText(document.getElementById(`count-${status}`), sessions.filter(session => visibleStatus(session) === status).length);
     }
     renderWorkspace(sessions, attention, cooking);
@@ -594,9 +628,9 @@
 
   function announceConversationCounts() {
     if (!state || !connected) return;
-    const counts = Object.fromEntries(Object.keys(labels).map(status => [status,
+    const counts = Object.fromEntries(Object.keys(priority).map(status => [status,
       state.sessions.filter(session => visibleStatus(session) === status).length]));
-    const changed = Object.keys(labels).filter(status => previousAnnouncedCounts !== null
+    const changed = Object.keys(priority).filter(status => previousAnnouncedCounts !== null
       && previousAnnouncedCounts[status] !== counts[status]);
     if (changed.length && activeTab === "board"
         && document.visibilityState === "visible" && document.hasFocus()

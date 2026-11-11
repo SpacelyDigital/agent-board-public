@@ -27,7 +27,8 @@ function block(from, until) {
   return source.slice(start, stop);
 }
 const labels = source.match(/^  const labels = .*;$/m)?.[0];
-if (!labels) throw Error('Status labels not found');
+const priority = source.match(/^  const priority = .*;$/m)?.[0];
+if (!labels || !priority) throw Error('Status labels or priority not found');
 let response;
 let sounds = 0;
 const announcements = [];
@@ -41,7 +42,7 @@ const context = {state:null, previousStatuses:new Map(), previousAnnouncedCounts
   playAttentionSound:()=>sounds++, render:()=>{},
   document:{activeElement:null,visibilityState:'visible',hasFocus:()=>true}, Date, Map};
 vm.createContext(context);
-vm.runInContext(labels + '\n'
+vm.runInContext(labels + '\n' + priority + '\n'
   + block('  function setText(', '  function make(')
   + block('  function visibleStatus(', '  function makeCard(')
   + source.slice(begin,end),context);

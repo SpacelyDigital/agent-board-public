@@ -40,7 +40,7 @@ def sha256(path):
 
 def source_hashes():
     inputs = set(RUNTIME_FILES) | {
-        "MacApp.swift", "CollectorRuntime.swift", "collector_entry.py", "build_store.py", "build_support.py", "install.py",
+        "MacApp.swift", "CollectorRuntime.swift", "ClaudeChatStatus.swift", "ChatGPTChatStatus.swift", "collector_entry.py", "build_store.py", "build_support.py", "install.py",
         "entitlements/sandbox-app.plist", "entitlements/sandbox-helper.plist", "entitlements/sandbox-collector-policy.json",
         "privacy/PrivacyInfo.xcprivacy", "privacy/CollectorPrivacyInfo.xcprivacy", "assets/AgentBoard.icns",
         "static/about/store.html", "store-listing/site/privacy.html",

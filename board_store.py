@@ -16,7 +16,16 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from chat_links import DESKTOP_CHAT_ID, DESKTOP_CHAT_ID_PREFIX
+
 STATUSES = {"cooking", "needs_you", "ready", "disconnected"}
+CHATGPT_WINDOW_ID = re.compile(r"window:[0-9a-f]{32}\Z")
+
+
+def valid_desktop_chat_id(provider, ident):
+    return isinstance(ident, str) and (
+        DESKTOP_CHAT_ID.fullmatch(ident) is not None
+        or provider == "chatgpt" and CHATGPT_WINDOW_ID.fullmatch(ident) is not None)
 
 
 class Conflict(Exception):
@@ -41,6 +50,32 @@ class BoardStore:
                     raise
                 self._recover_corrupt_database()
                 self._initialize()
+            self._retire_legacy_chatgpt_windows()
+
+    def _retire_legacy_chatgpt_windows(self):
+        """Keep pre-verification window observations without replaying their alerts."""
+        marker = "chatgpt_provider_identity_v2"
+        with self.connect() as db:
+            if db.execute("SELECT 1 FROM metadata WHERE key=?", (marker,)).fetchone():
+                return
+            rows = [row for row in db.execute("SELECT * FROM sessions WHERE provider='chatgpt'")
+                    if row["id"].startswith(DESKTOP_CHAT_ID_PREFIX)
+                    and CHATGPT_WINDOW_ID.fullmatch(row["id"][len(DESKTOP_CHAT_ID_PREFIX):])
+                    and self._extra(row["extra"]).get("source_kind") == "desktop_chat"]
+            if rows:
+                # These IDs were created from a window and title, without proof
+                # of the selected product. They cannot safely be merged by title.
+                recovery = self._new_recovery_directory()
+                backup_path = recovery / "board-before-chat-identity-repair.sqlite3"
+                descriptor = os.open(backup_path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+                os.close(descriptor)
+                with sqlite3.connect(backup_path) as backup:
+                    db.backup(backup)
+                for row in rows:
+                    extra = self._extra(row["extra"])
+                    extra["legacy_identity_unverified"] = True
+                    db.execute("UPDATE sessions SET extra=? WHERE key=?", (json.dumps(extra), row["key"]))
+            db.execute("INSERT INTO metadata VALUES (?,?)", (marker, str(time.time())))
 
     @contextmanager
     def _initialization_lock(self):
@@ -293,6 +328,21 @@ class BoardStore:
                 prior_revision = previous_extra.get("history_revision")
                 rebased = bool(revision and prior_revision
                                and revision["generation"] != prior_revision.get("generation"))
+                project_observed = source.get("project_status_observed_at")
+                current_project_work = bool(previous and obs["provider"] == "claude"
+                    and source_extra.get("source_kind") == previous_extra.get("source_kind") == "project"
+                    and source.get("confirmed_live") is True and source.get("metadata_only") is not True
+                    and obs["status"] in ("cooking", "needs_you")
+                    and self._finite_number(project_observed)
+                    and 0 <= now - project_observed <= 35
+                    and project_observed >= previous["observed_at"])
+                if current_project_work and obs["updated_at"] < previous["updated_at"]:
+                    # Project last_reply_at describes a message, not when work
+                    # resumed or a live prompt appeared. A bounded fresh status
+                    # read may supersede old attention without moving message
+                    # time backwards. Ready and local-history reads still use
+                    # the existing older-event protection below.
+                    obs["updated_at"] = previous["updated_at"]
                 if previous and (source.get("metadata_only") is True
                                  or (obs["updated_at"] < previous["updated_at"] and not rebased)):
                     # A title or desktop-session mapping can improve while the
@@ -348,10 +398,22 @@ class BoardStore:
     def normalize(source, now):
         if not isinstance(source, dict):
             return None
-        if source.get("provider") not in ("codex", "claude") or not isinstance(source.get("status"), str) or source["status"] not in STATUSES:
+        provider = source.get("provider")
+        if provider not in ("codex", "claude", "chatgpt") or not isinstance(source.get("status"), str) or source["status"] not in STATUSES:
             return None
         ident = str(source.get("id", ""))
         if not ident or len(ident) > 200 or any(0xd800 <= ord(char) <= 0xdfff for char in ident):
+            return None
+        unlinked = False
+        if source.get("source_kind") == "desktop_chat":
+            desktop_id = ident[len(DESKTOP_CHAT_ID_PREFIX):]
+            if (provider not in ("claude", "chatgpt") or not ident.startswith(DESKTOP_CHAT_ID_PREFIX)
+                    or not valid_desktop_chat_id(provider, desktop_id)):
+                return None
+            unlinked = CHATGPT_WINDOW_ID.fullmatch(desktop_id) is not None
+            if unlinked and (not isinstance(source.get("title"), str) or not source["title"].strip()):
+                return None
+        elif provider == "chatgpt":
             return None
         try:
             updated = float(source["updated_at"])
@@ -365,6 +427,9 @@ class BoardStore:
             return None
         # A status change is a new revision even if a source reuses its event ID.
         event_id = hashlib.sha256((raw_event + ":" + source["status"]).encode("utf-8", errors="surrogatepass")).hexdigest()[:24]
+        extra = BoardStore._normalize_extra(source)
+        if unlinked:
+            extra.pop("open_url", None)
         return {
             "key": source["provider"] + ":" + ident,
             "provider": source["provider"], "id": ident,
@@ -372,8 +437,8 @@ class BoardStore:
             "cwd": BoardStore._text(source.get("cwd") or "", 2000),
             "status": source["status"], "detail": BoardStore._text(source.get("detail") or "", 1000),
             "updated_at": updated, "started_at": started, "observed_at": now,
-            "event_id": event_id, "can_open": int(bool(source.get("can_open"))),
-            "extra": json.dumps(BoardStore._normalize_extra(source)),
+            "event_id": event_id, "can_open": int(not unlinked and bool(source.get("can_open"))),
+            "extra": json.dumps(extra),
         }
 
     @staticmethod
@@ -394,6 +459,8 @@ class BoardStore:
             result["status_inferred"] = source["status_inferred"]
         if type(source.get("history_checking")) is bool:
             result["history_checking"] = source["history_checking"]
+        if type(source.get("legacy_identity_unverified")) is bool:
+            result["legacy_identity_unverified"] = source["legacy_identity_unverified"]
         revision = BoardStore._verified_history_revision(source)
         if revision:
             result["history_revision"] = revision
@@ -443,6 +510,10 @@ class BoardStore:
             item.pop("background_reason", None)
         elif placement == "background":
             item["background_reason"] = "manual"
+        if item.get("legacy_identity_unverified"):
+            item["background_reason"] = "unverified_chat_identity"
+            item["status"] = "disconnected"
+            item["detail"] = "An older window reading could not verify this chat's identity. It is preserved locally outside conversation lists."
         item["snoozed_until"] = (preference.get("snoozed_until", 0)
             if preference.get("snoozed_event") == item["event_id"] else 0)
         item["history_checking"] = item.get("history_checking") is True
@@ -462,7 +533,7 @@ class BoardStore:
             and item["snoozed_until"] <= (now if now is not None else time.time()))
         return item
 
-    def snapshot(self):
+    def snapshot(self, hidden_desktop_providers=()):
         with self.lock, self.connect() as db:
             rows = db.execute("""SELECT s.*,b.reason AS background_reason FROM sessions s
                 LEFT JOIN background_sessions b ON b.key=s.key
@@ -472,6 +543,13 @@ class BoardStore:
         counts = {status: 0 for status in STATUSES}
         for row in rows:
             item = self.decorate(row, preferences.get(row["key"]))
+            # Unsupported window identities can refer to conversations already
+            # represented by their canonical IDs. Keep their recoverable state
+            # in SQLite without showing a second card in any conversation list.
+            if item.get("legacy_identity_unverified"):
+                continue
+            if item.get("source_kind") == "desktop_chat" and item["provider"] in hidden_desktop_providers:
+                continue
             if item.get("background_reason"):
                 background.append(item)
                 continue
@@ -551,7 +629,16 @@ class BoardStore:
                 raise KeyError(key)
             db.execute("UPDATE sessions SET reviewed_event=NULL,reviewed_at=NULL WHERE key=?", (key,))
 
-    def session_ids(self, provider):
+    def session_ids(self, provider, candidates=None):
+        if candidates is not None:
+            candidates = tuple(candidates)
+            if not candidates:
+                return set()
+            placeholders = ",".join("?" for _ in candidates)
+            with self.lock, self.connect() as db:
+                rows = db.execute("SELECT id FROM sessions WHERE provider=? AND id IN (" + placeholders + ")",
+                                  (provider, *candidates))
+                return {row["id"] for row in rows}
         with self.lock, self.connect() as db:
             return {row["id"] for row in db.execute("SELECT id FROM sessions WHERE provider=?", (provider,))}
 

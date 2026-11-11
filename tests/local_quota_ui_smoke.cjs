@@ -66,6 +66,8 @@ async function main() {
     const weekly = page.locator('#usage-claude-weekly');
     const claudeCredits = page.locator('#usage-claude-credits');
     const codexCredits = page.locator('#usage-codex-credits');
+    const claudeNote = page.locator('#usage-claude-note');
+    const codexNote = page.locator('#usage-codex-note');
     const codex = (credits) => provider('codex', [], {credits});
     const phase = async next => {
       usage = next;
@@ -73,13 +75,28 @@ async function main() {
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
       await response;
     };
+    let alignmentChecks = 0;
+    const checkAlignment = async label => {
+      for (const width of [270, 390, 1080, 1440]) {
+        await page.setViewportSize({width, height: 800});
+        const rows = await page.locator('.usage-provider').evaluateAll(providers => providers.map(provider => {
+          const weekly = provider.querySelector('.usage-window').getBoundingClientRect();
+          const credits = provider.querySelector('.usage-credits').getBoundingClientRect();
+          return {weeklyHeight: weekly.height, creditHeight: credits.height, spacing: credits.top - weekly.top,
+            clipped: provider.scrollWidth > provider.clientWidth + 1};
+        }));
+        assert(rows.every(row => !row.clipped), `${label} clips at ${width}px`);
+        assert(Math.abs(rows[0].spacing - rows[1].spacing) < 1, `${label} row spacing differs at ${width}px: ${JSON.stringify(rows)}`);
+        alignmentChecks++;
+      }
+    };
     const claude = provider('claude', [{id: 'five_hour', remaining_percent: 4, reset_at: null},
-      {id: 'weekly', remaining_percent: 32, reset_at: at + 4 * 3600}]);
+      {id: 'weekly', remaining_percent: 31.6, reset_at: at + 4 * 3600}]);
     usage = [claude, codex({amount: 0, unit: 'credits', observed_at: at})];
     await page.goto(base + '/');
     await weekly.locator('.usage-value').filter({hasText: '32% remaining'}).waitFor();
     assert.equal(await page.locator('#usage-claude-five_hour').count(), 0);
-    assert.match(await weekly.locator('.usage-freshness').textContent(), /Observed locally/);
+    assert.match(await claudeNote.textContent(), /Observed locally/);
     assert.match(await weekly.locator('.usage-reset').textContent(), /Resets in 4h/);
     assert.equal(await claudeCredits.locator('.usage-value').textContent(), 'Unavailable');
     assert.equal(await claudeCredits.getByRole('link').getAttribute('href'), 'https://claude.ai/settings/usage');
@@ -87,20 +104,57 @@ async function main() {
     assert.equal(await codexCredits.getByRole('link').count(), 0);
 
     await phase([claude, codex({amount: -12.5, unit: 'credits', observed_at: at - 180, stale: true})]);
-    await codexCredits.locator('.usage-value').filter({hasText: '-12.5'}).waitFor();
-    assert.match(await codexCredits.locator('.usage-freshness').textContent(), /Stale.*3m/);
+    await codexCredits.locator('.usage-value').filter({hasText: '-13'}).waitFor();
+    assert.match(await codexNote.textContent(), /stale.*3m/);
 
-    await phase([provider('claude', []), codex({amount: '0', unit: 'credits'})]);
+    await phase([provider('claude', [], {error: 'Keychain has not allowed access to Claude Safe Storage. No permission prompt was opened.', error_code: 'claude_account_access_required'}), codex({amount: '0', unit: 'credits'})]);
     await codexCredits.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
     assert.equal(await codexCredits.getByRole('link').getAttribute('href'), 'https://chatgpt.com/codex/settings/usage');
-    assert.equal(await codexCredits.locator('.usage-freshness').isVisible(), false);
-    assert.equal(await weekly.locator('.usage-freshness').isVisible(), false);
+    assert.equal(await codexNote.textContent(), 'No usage reading is available.');
+    assert.equal(await claudeNote.textContent(), 'Allow Claude account access in Settings.');
+
+    await phase([provider('claude', [{id: 'weekly', remaining_percent: 32.5, reset_at: at + 3600}],
+      {credits: {amount: 24.5, unit: 'USD', observed_at: at}}),
+      provider('codex', [{id: 'weekly', remaining_percent: 95.6, reset_at: at + 3600}],
+        {credits: {amount: 57824.503123, unit: 'credits', observed_at: at}})]);
+    await codexCredits.locator('.usage-value').filter({hasText: '57,825'}).waitFor();
+    assert.equal(await claudeCredits.locator('.usage-value').textContent(), '$25');
+    assert.equal(await weekly.locator('.usage-value').textContent(), '33% remaining');
+    assert.equal(await page.locator('#usage-codex-weekly .usage-value').textContent(), '96% remaining');
+
+    await phase([provider('claude', [{id: 'weekly', remaining_percent: 30, reset_at: at + 3600}],
+      {credits: {status: 'disabled', unit: 'USD', observed_at: at}})]);
+    await claudeCredits.locator('.usage-value').filter({hasText: 'Turned off'}).waitFor();
+    assert.equal(await claudeCredits.getByRole('link', {name: 'Manage Claude usage credits'}).textContent(), 'Manage credits');
+    assert.match(await claudeNote.textContent(), /Observed locally/);
+
+    const healthy = provider('codex', [{id: 'weekly', remaining_percent: 96, reset_at: at + 3600}],
+      {source: 'account', credits: {amount: 57825, unit: 'credits', observed_at: at}});
+    const limited = provider('claude', [{id: 'weekly', remaining_percent: 30, reset_at: at + 3600}],
+      {source: 'account', stale: true, updated_at: at - 300, error_code: 'rate_limited', retry_at: at + 480,
+       credits: {status: 'disabled', unit: 'USD', observed_at: at - 300, stale: true}});
+    await phase([limited, healthy]);
+    await claudeNote.filter({hasText: 'Usage checks are temporarily rate limited.'}).waitFor();
+    assert.match(await claudeNote.textContent(), /Last reading 5m ago.*Retrying in 8m/);
+    assert.equal(await codexNote.isVisible(), false);
+    assert.equal(await page.locator('.usage-provider-note:visible').count(), 1);
+    await checkAlignment('rate-limited and healthy');
+    await phase([provider('claude', [], {source: 'account', loading: true}), healthy]);
+    await weekly.locator('.usage-value').filter({hasText: 'Loading'}).waitFor();
+    await checkAlignment('loading and healthy');
+    await phase([provider('claude', [], {source: 'account', error: 'Account usage could not be read.'}), healthy]);
+    await weekly.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
+    await checkAlignment('unavailable and healthy');
+    await phase([{...limited, stale: false, error_code: null, retry_at: null, updated_at: at,
+      credits: {status: 'disabled', unit: 'USD', observed_at: at}}, healthy]);
+    await claudeNote.waitFor({state: 'hidden'});
+    await checkAlignment('recovered and healthy');
 
     sampleMode = true;
     await phase([provider('claude', [], {credits: {amount: 25, unit: 'USD'}}),
       codex({amount: 240, unit: 'credits'})]);
-    await claudeCredits.locator('.usage-value').filter({hasText: '$25.00'}).waitFor();
-    assert.equal(await claudeCredits.locator('.usage-freshness').textContent(), 'Sample balance');
+    await claudeCredits.locator('.usage-value').filter({hasText: '$25'}).waitFor();
+    assert.equal(await claudeNote.textContent(), 'Sample usage and balance.');
     assert.equal(await codexCredits.locator('.usage-value').textContent(), '240');
     assert.equal(await page.getByRole('link', {name: /credit balance/}).count(), 0);
     for (const width of [270, 390, 1080]) {
@@ -112,9 +166,11 @@ async function main() {
     }
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);
-    const result = {passed: true, phases: 4, engine: 'WebKit', provider_calls: 0,
+    const result = {passed: true, phases: 10, engine: 'WebKit', provider_calls: 0, alignment_checks: alignmentChecks,
       five_hour_hidden: true, weekly_reset_retained: true, zero_and_negative_balances: true,
-      missing_balances_link_to_provider: true, stale_balance_retains_age: true, samples_labelled: true};
+      missing_balances_link_to_provider: true, stale_balance_retains_age: true, samples_labelled: true,
+      all_usage_numbers_rounded: true, keychain_recovery_visible: true, disabled_claude_credits_explicit: true,
+      rate_limit_and_retry_visible_once: true, healthy_note_hidden: true};
     if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(result, null, 2) + '\n');
     console.log(JSON.stringify(result));
   } finally {

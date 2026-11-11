@@ -25,10 +25,11 @@ from urllib.parse import unquote, urlsplit
 
 from local_quota import ClaudeLocalQuota, STALE_SECONDS, parse_codex_observation
 
-from board_store import BoardStore, Conflict
+from board_store import BoardStore, Conflict, valid_desktop_chat_id
 from claude_source import ClaudeSource
 from codex_source import CodexSource
-from chat_links import chat_url, open_command, UnsupportedChatLink
+from chat_links import (DESKTOP_CHAT_ID, DESKTOP_CHAT_ID_PREFIX, DESKTOP_CHAT_URLS,
+                        chat_url, open_command, UnsupportedChatLink)
 
 if os.environ.get("AGENT_BOARD_SANDBOX") == "1":
     # The signed sandbox entry sets this before importing the server. Store
@@ -39,6 +40,9 @@ if os.environ.get("AGENT_BOARD_SANDBOX") == "1":
         pass
 else:
     from claude_project_source import ClaudeProjectSource
+    from chatgpt_source import ChatGPTSource
+    from chatgpt_status import ChatGPTStatusReader
+    from chatgpt_monitor import ChatGPTConversationSource
     from usage_source import UsageSource
     from process_reader import stop_all_processes
 
@@ -53,9 +57,17 @@ class _UnselectedSource:
 
 class Monitor:
     def __init__(self, data_dir, codex_root=None, claude_root=None, interval=2, usage_enabled=False, projects_enabled=False,
-                 claude_desktop_root=None, sandbox=False, source_grants=None, store_profile=False, sample_mode=False):
+                 claude_desktop_root=None, sandbox=False, source_grants=None, store_profile=False, sample_mode=False,
+                 claude_chat_source=None, chatgpt_chat_source=None):
         if store_profile and not sandbox:
             raise ValueError("The Store profile requires sandbox source access.")
+        desktop_chat_sources = {provider: reader for provider, reader in
+                                (("claude", claude_chat_source), ("chatgpt", chatgpt_chat_source))
+                                if reader is not None}
+        if desktop_chat_sources and (sandbox or store_profile or sample_mode
+                                     or any(root is not None for root in
+                                            (codex_root, claude_root, claude_desktop_root))):
+            raise ValueError("Desktop chat status requires a direct native launch.")
         if source_grants is None:
             # Explicit-root model fixtures predate the native grant bridge.
             # The packaged entry always supplies its validated three grants.
@@ -95,6 +107,8 @@ class Monitor:
         self.sandbox = sandbox
         self.store_profile = store_profile
         self.sample_mode = sample_mode
+        self.desktop_chat_sources = desktop_chat_sources
+        self.hidden_desktop_providers = DESKTOP_CHAT_URLS.keys() - desktop_chat_sources.keys()
         self.sources = [] if sample_mode else [
             _UnselectedSource("codex") if not source_allowed["codex"] else
             CodexSource(codex_root, confine_paths=True, snapshot_parent=board_directory) if sandbox else CodexSource(codex_root),
@@ -200,7 +214,8 @@ class Monitor:
                 try:
                     source.revision_lookup = lambda ident, provider=provider: self.store.transcript_revision(ident, provider)
                     if provider == "claude":
-                        source.tracked_ids = {ident for ident in self.store.session_ids("claude") if not ident.startswith("project:")}
+                        source.tracked_ids = {ident for ident in self.store.session_ids("claude")
+                                              if not ident.startswith(("project:", DESKTOP_CHAT_ID_PREFIX))}
                     observations, status = source.scan(now, self.store.activated_at)
                     if self.sandbox and provider == "codex":
                         for observation in observations:
@@ -243,6 +258,8 @@ class Monitor:
                     self.store.mark_unavailable(provider, "The source could not be read. Its last working state is unconfirmed.", source_kind="local" if provider == "claude" else None)
                     health.append({"id": provider, "name": "Codex" if provider == "codex" else "Claude Code", "available": False,
                                    "detail": "Local session data could not be read. Retrying automatically.", "last_seen": self.last_scan})
+            for source in self.desktop_chat_sources.values():
+                health.append(source.scan(self.store, time.time()))
             self.health = health
             self.last_scan = now
             if self.sandbox:
@@ -314,8 +331,9 @@ class Monitor:
             health = {"id": "claude_projects", "name": "Claude projects", "available": False,
                       "detail": "Claude project status could not be read. Retrying automatically.", "last_seen": None}
         with self.lock:
-            self.store.apply(observations, now)
-            present = {row["provider"] + ":" + row["id"] for row in observations if self.store.normalize(row, now) is not None}
+            received_at = time.time()
+            self.store.apply(observations, received_at)
+            present = {row["provider"] + ":" + row["id"] for row in observations if self.store.normalize(row, received_at) is not None}
             # A partial response can still confirm its successful rows. Missing
             # working rows become uncertain without changing completed replies.
             self.store.mark_unavailable("claude", "The project's working state could not be confirmed in the latest check.",
@@ -326,12 +344,20 @@ class Monitor:
         if self.project_source is None:
             return
         while not self.stop.is_set():
+            started = time.monotonic()
             self.scan_projects()
-            self.stop.wait(15)
+            # Keep a start-to-start cadence. Slow history verification must
+            # not add another full polling interval to the visible state lag.
+            self.stop.wait(max(0, 15 - (time.monotonic() - started)))
 
     def snapshot(self):
         with self.lock:
-            snapshot = self.store.snapshot()
+            snapshot = self.store.snapshot(hidden_desktop_providers=self.hidden_desktop_providers)
+            now = time.time()
+            for provider, source in self.desktop_chat_sources.items():
+                idle = source.open_chats(now)
+                saved = self.store.session_ids(provider, candidates=idle)
+                snapshot["background"].extend(item for ident, item in idle.items() if ident not in saved)
             sources = copy.deepcopy(self.health + ([self.project_health] if self.project_health else []))
             source_health = {source.get("id"): source for source in sources}
             for group in ("sessions", "history", "background"):
@@ -341,22 +367,36 @@ class Monitor:
                                      "source_unavailable_detail": "", "notification_eligible": False})
                         continue
                     source_id = item["provider"]
-                    if source_id == "claude" and (item.get("source_kind") == "project"
-                                                  or item["id"].startswith("project:")):
+                    desktop_chat = (self.desktop_chat_sources.get(source_id)
+                                    if item.get("source_kind") == "desktop_chat" else None)
+                    if desktop_chat is not None:
+                        source_id = desktop_chat.source_id
+                    elif source_id == "claude" and (item.get("source_kind") == "project"
+                                                   or item["id"].startswith("project:")):
                         source_id = "claude_projects"
                     health = source_health.get(source_id)
                     unavailable = health is None or health.get("available") is not True
-                    item["source_unavailable"] = unavailable
                     detail = health.get("detail") if health else None
+                    if (desktop_chat is not None and not unavailable and item["status"] == "cooking"
+                            and item["id"] not in desktop_chat.cooking):
+                        unavailable = True
+                        detail = f"This chat was not observed in the latest {desktop_chat.name} status check."
+                    item["source_unavailable"] = unavailable
                     item["source_unavailable_detail"] = (
                         " ".join(detail.split())[:240] if isinstance(detail, str) and detail.strip()
                         else "The source is unavailable. This is its last saved state."
                     ) if unavailable else ""
-            snapshot.update({"sources": sources, "now": time.time(), "last_scan": self.last_scan,
+            snapshot.update({"sources": sources, "now": now, "last_scan": self.last_scan,
                              "csrf_token": self.token, "poll_interval": self.interval, "sample_mode": self.sample_mode})
             with self.usage_lock:
                 snapshot["usage"] = copy.deepcopy(self.usage)
             return snapshot
+
+    def open_desktop_chat(self, key):
+        with self.lock:
+            provider, _, ident = key.partition(":")
+            source = self.desktop_chat_sources.get(provider)
+            return source.open_chats(time.time()).get(ident) if source is not None else None
 
 
 class BoardHTTPServer(ThreadingHTTPServer):
@@ -607,6 +647,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(404, {"error": "Action not found."})
         key, action = unquote(pieces[3]), pieces[4]
         try:
+            provider, _, ident = key.partition(":")
+            if provider in self.monitor.hidden_desktop_providers and ident.startswith(DESKTOP_CHAT_ID_PREFIX):
+                raise KeyError(key)
             # Scan before acknowledging to prevent a stale card clearing a newly started turn.
             if action == "review":
                 with self.monitor.lock:
@@ -626,6 +669,8 @@ class Handler(BaseHTTPRequestHandler):
                 if self.monitor.sample_mode:
                     return self.respond(409, {"error": "Sample chats cannot open a provider app."})
                 session = self.monitor.store.get(key)
+                if session is None:
+                    session = self.monitor.open_desktop_chat(key)
                 if session is None:
                     raise KeyError(key)
                 if not session["can_open"]:
@@ -771,6 +816,190 @@ class NativeLaunchFiles:
         return removed
 
 
+def validate_native_chat_launch(launch_files, instance_id):
+    if (not isinstance(instance_id, str) or str(uuid.UUID(instance_id)).upper() != instance_id
+            or launch_files.directory is None or ".collector-access-" + instance_id not in launch_files.entries):
+        raise ValueError("Chat monitoring requires the native launch identity.")
+
+
+class DesktopChatSource:
+    """Confirm only Cooking followed by Idle in consecutive observed snapshots."""
+
+    MAX_AGE = 12
+    MAX_BYTES = 65_536
+    MAX_CHATS = 64
+    DIAGNOSTIC_FLAGS = {"deadline_reached", "request_limit_reached"}
+    DIAGNOSTIC_COUNTS = {
+        "apps", "windows", "visible_windows", "web_areas", "page_urls", "shell_urls",
+        "accepted_shells", "navigation_landmarks", "history_landmarks", "history_links",
+        "current_links", "current_link_urls", "walk_limits", "role_failures", "searched_history_links",
+        "recognized_pages", "text_inputs", "composers", "stop_controls", "idle_controls", "classifications",
+        "complete_idle_scopes", "incomplete_control_scopes", "child_count_unavailable",
+        "incomplete_child_batches", "empty_child_values",
+        "child_truncations", "child_count_mismatches", "child_copy_failures", "depth_truncations",
+        "max_child_count", "control_read_failures", "control_child_failures", "control_depth_truncations",
+        "max_control_child_count",
+    }
+
+    def __init__(self, launch_files, path, instance_id):
+        validate_native_chat_launch(launch_files, instance_id)
+        name = self.provider + "-chat-status-" + instance_id + ".json"
+        token_name = ".collector-access-" + instance_id
+        if (launch_files.directory is None or token_name not in launch_files.entries
+                or path != launch_files.path / name):
+            raise ValueError("Desktop chat status requires this launch's private file.")
+        self.launch_files = launch_files
+        self.filename = name
+        self.source_id = self.provider + "_chats"
+        self.cooking = {}
+        self.idle = {}
+        self.observed_at = None
+        self.content_hash = None
+        self.available = False
+
+    @staticmethod
+    def unique_object(pairs):
+        value = dict(pairs)
+        if len(value) != len(pairs):
+            raise ValueError("Duplicate status fields.")
+        return value
+
+    def valid_snapshot_shape(self, value):
+        if isinstance(value, dict) and set(value) == {"observed_at", "chats"}:
+            return True
+        if not isinstance(value, dict) or set(value) != {"observed_at", "chats", "diagnostics"}:
+            return False
+        diagnostics = value["diagnostics"]
+        return (isinstance(diagnostics, dict) and len(diagnostics) <= 40
+                and diagnostics.keys() <= self.DIAGNOSTIC_COUNTS | self.DIAGNOSTIC_FLAGS
+                and all(type(number) is int and 0 <= number <= (1 if key in self.DIAGNOSTIC_FLAGS else 10_000)
+                        for key, number in diagnostics.items()))
+
+    def read_snapshot(self, now):
+        directory = self.launch_files.path.lstat()
+        if (not stat.S_ISDIR(directory.st_mode) or stat.S_IMODE(directory.st_mode) != 0o700
+                or directory.st_uid != os.getuid()
+                or (directory.st_dev, directory.st_ino) != self.launch_files.identity):
+            raise ValueError("Desktop chat status directory changed.")
+        captured = self.launch_files._read(self.filename, self.MAX_BYTES)
+        if captured is None:
+            raise ValueError("Desktop chat status is unavailable.")
+        raw, fingerprint = captured
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=self.unique_object)
+        if not self.valid_snapshot_shape(value):
+            raise ValueError("Invalid desktop chat status.")
+        observed = value["observed_at"]
+        rows = value["chats"]
+        if (not BoardStore._finite_number(observed) or not now - self.MAX_AGE <= observed <= now + 2
+                or not isinstance(rows, list) or len(rows) > self.MAX_CHATS):
+            raise ValueError("Invalid or expired desktop chat status.")
+        chats = {}
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != {"id", "title", "status"}:
+                raise ValueError("Invalid desktop chat.")
+            ident, title, status = row["id"], row["title"], row["status"]
+            if (not valid_desktop_chat_id(self.provider, ident) or ident in chats
+                    or not isinstance(title, str) or len(title) > 500
+                    or any(0xd800 <= ord(char) <= 0xdfff for char in title)
+                    or status not in ("cooking", "idle")):
+                raise ValueError("Invalid desktop chat.")
+            title = " ".join(title.split())
+            if not title and not DESKTOP_CHAT_ID.fullmatch(ident):
+                raise ValueError("An unlinked desktop chat requires an observed title.")
+            chats[ident] = (title or f"{self.name} chat", status)
+        return observed, fingerprint[-1], chats
+
+    def scan(self, store, now):
+        try:
+            observed, content_hash, chats = self.read_snapshot(now)
+            if self.observed_at is not None:
+                if observed < self.observed_at or (observed == self.observed_at and content_hash != self.content_hash):
+                    raise ValueError("Desktop chat status is out of order.")
+                if observed == self.observed_at:
+                    return self.health()
+            prior = (self.cooking if self.observed_at is not None
+                     and observed - self.observed_at <= self.MAX_AGE else {})
+            observations, cooking, idle = [], {}, {}
+            for ident, (title, state) in chats.items():
+                session_id = DESKTOP_CHAT_ID_PREFIX + ident
+                previous = prior.get(session_id)
+                if previous and not DESKTOP_CHAT_ID.fullmatch(ident) and previous[1] != title:
+                    previous = None
+                if state == "cooking":
+                    started = previous[0] if previous else observed
+                    cooking[session_id] = (started, title)
+                    status, updated, detail = "cooking", started, f"{self.name} Desktop is responding."
+                else:
+                    idle[session_id] = title
+                    if previous is None:
+                        continue
+                    started = previous[0]
+                    status, updated, detail = "ready", observed, f"Review the latest activity in {self.name} Desktop."
+                observations.append({"provider": self.provider, "source_kind": "desktop_chat", "id": session_id,
+                                     "title": title, "status": status, "detail": detail, "started_at": started,
+                                     "updated_at": updated, "event_id": f"desktop-chat:{ident}:{started}",
+                                     "confirmed_live": state == "cooking", **self.link_fields(ident)})
+            if observations:
+                store.apply(observations, now)
+            self.cooking, self.idle = cooking, idle
+            self.observed_at, self.content_hash = observed, content_hash
+            self.available = True
+        except (OSError, ValueError, RecursionError, sqlite3.DatabaseError):
+            # Loss of observation breaks the lifecycle without rewriting a
+            # saved reply or its Review acknowledgement.
+            self.cooking.clear()
+            self.idle.clear()
+            self.available = False
+        return self.health()
+
+    def open_chats(self, now):
+        if not self.available or self.observed_at is None or not now - self.MAX_AGE <= self.observed_at <= now + 2:
+            return {}
+        return {ident: {"key": self.provider + ":" + ident, "provider": self.provider, "id": ident,
+                        "title": title, "source_kind": "desktop_chat", "open_only": True, "status": "disconnected",
+                        "detail": f"This chat is open in {self.name}. No reply status was observed.",
+                        "updated_at": self.observed_at, "notification_eligible": False,
+                        **self.link_fields(ident[len(DESKTOP_CHAT_ID_PREFIX):])}
+                for ident, title in self.idle.items()}
+
+    def link_fields(self, ident):
+        if DESKTOP_CHAT_ID.fullmatch(ident):
+            return {"can_open": True, "open_url": DESKTOP_CHAT_URLS[self.provider] + ident,
+                    "open_label": self.open_label}
+        return {"can_open": False, "open_label": self.open_label,
+                "open_error": "ChatGPT did not expose a verified link for this window."}
+
+    def health(self):
+        return {"id": self.source_id, "name": f"{self.name} chats", "available": self.available,
+                "detail": (f"Monitoring observed {self.name} Desktop chats." if self.available
+                           else f"{self.name} Desktop chat status could not be confirmed."),
+                "last_seen": self.observed_at if self.available else None}
+
+
+class ClaudeDesktopChatSource(DesktopChatSource):
+    provider = "claude"
+    name = "Claude"
+    open_label = "Open Claude chat"
+
+
+class ChatGPTDesktopChatSource(DesktopChatSource):
+    provider = "chatgpt"
+    name = "ChatGPT"
+    open_label = "Open ChatGPT"
+    allow_window_ids = True
+    def read_snapshot(self, now):
+        observed, fingerprint, chats = super().read_snapshot(now)
+        if not self.allow_window_ids:
+            chats = {ident: value for ident, value in chats.items() if DESKTOP_CHAT_ID.fullmatch(ident)}
+        return observed, fingerprint, chats
+
+    def health(self):
+        health = super().health()
+        if self.available and not (self.cooking or self.idle):
+            health.update(waiting_for_chat=True, detail="No regular ChatGPT chat was recognized in the latest check.")
+        return health
+
+
 def parent_stdin_ended():
     """The native-only lifetime pipe carries no data; bytes or EOF mean stop."""
     try:
@@ -800,6 +1029,9 @@ def parse_arguments(argv=None):
     parser.add_argument("--codex-root", type=Path)
     parser.add_argument("--claude-root", type=Path)
     parser.add_argument("--claude-desktop-root", type=Path, help="Explicit authorized Claude Desktop support folder.")
+    parser.add_argument("--claude-chat-status-file", type=Path, help="Private status file for an opted-in direct native launch.")
+    parser.add_argument("--chatgpt-chat-status-file", type=Path, help="Private status file for opted-in ChatGPT chat monitoring.")
+    parser.add_argument("--chatgpt-chats", action="store_true", help="Monitor exact ChatGPT conversation IDs using the existing sign-in.")
     parser.add_argument("--sandbox", action="store_true", help="Require sandbox source grants and disable unsupported account helpers.")
     parser.add_argument("--store-profile", action="store_true", help="Use the sandboxed Mac App Store presentation.")
     parser.add_argument("--sample-mode", action="store_true", help="Show isolated built-in samples without accessing providers.")
@@ -821,6 +1053,13 @@ def main():
     parser, args = parse_arguments()
     args.store_profile = args.store_profile or os.environ.get("AGENT_BOARD_STORE_PROFILE") == "1"
     args.sandbox = args.sandbox or args.store_profile or os.environ.get("AGENT_BOARD_SANDBOX") == "1"
+    if (args.claude_chat_status_file is not None or args.chatgpt_chat_status_file is not None or args.chatgpt_chats) and (
+            args.sandbox or args.store_profile or args.sample_mode
+            or not args.parent_lifetime_stdin or not args.instance_id or args.access_token_file is None
+            or any(root is not None for root in (args.codex_root, args.claude_root, args.claude_desktop_root))):
+        parser.exit(2, "Desktop chat status requires a direct native launch.\n")
+    if args.chatgpt_chats and args.chatgpt_chat_status_file is not None:
+        parser.exit(2, "Choose one ChatGPT conversation source.\n")
     if args.sample_mode and (not args.sandbox or not args.store_profile or args.usage_enabled or args.projects_enabled
                              or getattr(sys, "frozen", False) and os.environ.get("AGENT_BOARD_STORE_PROFILE") != "1"):
         parser.exit(2, "Sample mode requires the Store sandbox with account helpers disabled.\n")
@@ -883,10 +1122,23 @@ def main():
             threading.Thread(target=watch_native_parent, daemon=True, name="native-parent-lifetime").start()
         if stopping.is_set():
             return
+        try:
+            claude_chat_source = (ClaudeDesktopChatSource(launch_files, args.claude_chat_status_file, args.instance_id)
+                                  if args.claude_chat_status_file is not None else None)
+            chatgpt_chat_source = (ChatGPTDesktopChatSource(launch_files, args.chatgpt_chat_status_file, args.instance_id)
+                                   if args.chatgpt_chat_status_file is not None else None)
+            if chatgpt_chat_source is not None:
+                chatgpt_chat_source.allow_window_ids = False
+            if args.chatgpt_chats:
+                validate_native_chat_launch(launch_files, args.instance_id)
+                chatgpt_chat_source = ChatGPTConversationSource(ChatGPTSource(), ChatGPTStatusReader(Path.home() / ".codex"))
+        except ValueError:
+            parser.exit(2, "Desktop chat status requires this launch's private file.\n")
         LOG.info("startup phase=construct_readers")
         monitor = Monitor(args.data_dir, args.codex_root, args.claude_root, max(0.5, args.interval),
                           args.usage_enabled, args.projects_enabled, args.claude_desktop_root, args.sandbox,
-                          source_grants=source_grants, store_profile=args.store_profile, sample_mode=args.sample_mode)
+                          source_grants=source_grants, store_profile=args.store_profile, sample_mode=args.sample_mode,
+                          claude_chat_source=claude_chat_source, chatgpt_chat_source=chatgpt_chat_source)
         if stopping.is_set():
             return
         LOG.info("startup phase=initial_scan")
@@ -919,6 +1171,10 @@ def main():
         try:
             if monitor is not None:
                 monitor.stop.set()
+                for source in monitor.desktop_chat_sources.values():
+                    close = getattr(source, "close", None)
+                    if close is not None:
+                        close()
             stop_all_processes()
             if server is not None:
                 server.server_close()

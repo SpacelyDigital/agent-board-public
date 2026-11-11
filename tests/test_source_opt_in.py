@@ -6,15 +6,29 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
-from server import Monitor, parse_arguments
+from server import Monitor, parse_arguments, validate_native_chat_launch
 
 
 class SourceOptInTests(unittest.TestCase):
+    def test_chat_monitoring_requires_validated_private_native_launch(self):
+        launch_id = "ABCDEF12-3456-4789-8123-123456789ABC"
+        token = ".collector-access-" + launch_id
+        for instance, directory, entries in ((None, 3, {token: True}),
+                                              ("invalid", 3, {token: True}),
+                                              (launch_id.lower(), 3, {token: True}),
+                                              (launch_id, None, {token: True}),
+                                              (launch_id, 3, {})):
+            with self.subTest(instance=instance, directory=directory), self.assertRaises(ValueError):
+                validate_native_chat_launch(SimpleNamespace(directory=directory, entries=entries), instance)
+        validate_native_chat_launch(SimpleNamespace(directory=3, entries={token: True}), launch_id)
+
     def test_cli_is_local_by_default_and_explicit_choices_are_mutually_exclusive(self):
         _, args = parse_arguments([])
         self.assertFalse(args.usage_enabled)
         self.assertFalse(args.projects_enabled)
+        self.assertFalse(args.chatgpt_chats)
         _, args = parse_arguments(["--usage", "--projects"])
         self.assertTrue(args.usage_enabled)
         self.assertTrue(args.projects_enabled)
