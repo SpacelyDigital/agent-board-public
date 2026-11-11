@@ -201,6 +201,17 @@ class ClaudeChatMonitorTests(unittest.TestCase):
         self.scan(3)
         self.assertEqual(self.item()['status'], 'ready')
 
+    def test_missing_initial_pair_cannot_complete_from_settlement_before_pending_turn(self):
+        self.set_row(last_settled_at=None, current_leaf_message_uuid=None,
+                     live_status='running', live_status_started_at=self.now, updated_at=self.now)
+        self.scan()
+        self.set_row(last_settled_at=self.now - 10, current_leaf_message_uuid=LEAF_A)
+        self.scan(1)
+        self.assertNotEqual(self.item()['status'], 'ready')
+        self.set_row(last_settled_at=self.now + 2, current_leaf_message_uuid=LEAF_B)
+        self.scan(3)
+        self.assertEqual(self.item()['status'], 'ready')
+
     def test_title_update_single_marker_or_artifact_change_is_not_completion(self):
         self.set_row()
         self.scan()
@@ -230,6 +241,165 @@ class ClaudeChatMonitorTests(unittest.TestCase):
         self.set_row(last_settled_at=self.now + 3, current_leaf_message_uuid=LEAF_B)
         self.scan(5)
         self.assertEqual(self.item()['status'], 'ready')
+
+    def test_settlement_arriving_before_idle_remains_pending_across_restart(self):
+        self.set_row(live_status='running', live_status_started_at=self.now, updated_at=self.now)
+        self.scan()
+        self.set_row(live_status='running', live_status_started_at=self.now,
+                     last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=self.now + 1)
+        self.scan(2)
+        self.assertEqual(self.item()['status'], 'cooking')
+        self.assertEqual(self.source._state['chats'][CHAT_A]['leaf'], LEAF_A)
+        self.restart()
+        self.set_row(last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=self.now + 1)
+        self.scan(3)
+        ready = self.item()
+        self.assertEqual(ready['status'], 'ready')
+        self.store.review(ready['key'], ready['event_id'])
+        self.scan(4)
+        self.assertEqual(self.item()['event_id'], ready['event_id'])
+        self.assertFalse(self.item()['notification_eligible'])
+
+    def test_later_turn_uses_earlier_settlement_as_baseline_without_old_ready(self):
+        self.set_row(live_status='running', live_status_started_at=self.now, updated_at=self.now)
+        self.scan()
+        self.set_row(live_status='running', live_status_started_at=self.now,
+                     last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B)
+        self.scan(2)
+        self.set_row(live_status='running', live_status_started_at=self.now + 3,
+                     last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=self.now + 3)
+        self.scan(4)
+        self.assertEqual(self.source._state['chats'][CHAT_A]['leaf'], LEAF_B)
+        self.set_row(last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B)
+        self.scan(5)
+        self.assertNotEqual(self.item()['status'], 'ready')
+        self.set_row(last_settled_at=self.now + 6, current_leaf_message_uuid=LEAF_C)
+        self.scan(7)
+        self.assertEqual(self.item()['status'], 'ready')
+
+    def test_initial_same_second_pair_is_history_but_later_settlement_can_complete(self):
+        self.set_row(live_status='running', live_status_started_at=self.now,
+                     last_settled_at=self.now, current_leaf_message_uuid=LEAF_A, updated_at=self.now)
+        self.scan()
+        self.set_row(last_settled_at=self.now, current_leaf_message_uuid=LEAF_A, updated_at=self.now)
+        self.scan(1)
+        self.assertNotEqual(self.item()['status'], 'ready')
+        self.set_row(live_status='running', live_status_started_at=self.now + 2,
+                     last_settled_at=self.now + 3, current_leaf_message_uuid=LEAF_B,
+                     updated_at=self.now + 3)
+        self.scan(4)
+        self.set_row(last_settled_at=self.now + 3, current_leaf_message_uuid=LEAF_B)
+        self.scan(5)
+        self.assertEqual(self.item()['status'], 'ready')
+
+    def test_saved_consumed_settlement_recovers_pending_turn_after_upgrade(self):
+        self.set_row(live_status='running', live_status_started_at=self.now, updated_at=self.now)
+        self.scan()
+        # A previous collector version consumed this pair while still running.
+        # Persist the exact old-format checkpoint before constructing a new reader.
+        saved = json.loads(self.path.read_text())
+        saved['chats'][CHAT_A].update(settled_at=self.now + 1, leaf=LEAF_B)
+        self.path.write_text(json.dumps(saved))
+        self.restart()
+        self.set_row(last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=self.now + 1)
+        self.assertTrue(self.scan(2)['available'])
+        ready = self.item()
+        self.assertEqual(ready['status'], 'ready')
+        self.assertIsNone(self.source._state['chats'][CHAT_A]['pending_started_at'])
+        self.store.review(ready['key'], ready['event_id'])
+        self.restart()
+        self.scan(3)
+        self.assertEqual(self.item()['event_id'], ready['event_id'])
+        self.assertFalse(self.item()['notification_eligible'])
+
+    def test_explicit_later_turn_in_same_second_consumes_previous_settlement_as_history(self):
+        second = int(self.now) + 1
+        self.set_row(live_status='running', live_status_started_at=second, updated_at=second)
+        self.scan(second - self.now)
+        self.set_row(live_status='running', live_status_started_at=second,
+                     last_settled_at=second + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=second + 1)
+        self.scan(second + 1.25 - self.now)
+        self.set_row(live_status='running', live_status_started_at=second + 1.75,
+                     last_settled_at=second + 1, current_leaf_message_uuid=LEAF_B,
+                     updated_at=second + 1.75)
+        self.scan(second + 2 - self.now)
+        self.assertEqual(self.source._state['chats'][CHAT_A]['leaf'], LEAF_B)
+        self.set_row(last_settled_at=second + 1, current_leaf_message_uuid=LEAF_B)
+        self.scan(second + 3 - self.now)
+        self.assertNotEqual(self.item()['status'], 'ready')
+        self.set_row(last_settled_at=second + 4, current_leaf_message_uuid=LEAF_C)
+        self.scan(second + 5 - self.now)
+        self.assertEqual(self.item()['status'], 'ready')
+
+    def test_delayed_idle_after_pending_settlement_retries_failed_write(self):
+        self.set_row(live_status='running', live_status_started_at=self.now, updated_at=self.now)
+        self.scan()
+        self.set_row(live_status='running', live_status_started_at=self.now,
+                     last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B)
+        self.scan(2)
+        self.set_row(last_settled_at=self.now + 1, current_leaf_message_uuid=LEAF_B)
+        with patch.object(self.store, 'apply', side_effect=OSError('fixture storage outage')):
+            self.assertFalse(self.scan(3)['available'])
+        self.assertEqual(self.item()['status'], 'cooking')
+        self.assertTrue(self.scan(4)['available'])
+        self.assertEqual(self.item()['status'], 'ready')
+
+    def test_pending_pair_attribution_transition_table(self):
+        # Both an existing completion and an absent first marker must obey the
+        # current turn's start boundary, regardless of metadata arrival order.
+        start = int(self.now) + 10.75
+        cases = [(baseline, order, path) for baseline in ('known', 'missing')
+                 for order in ('before', 'same_second', 'after')
+                 for path in ('idle', 'running_idle', 'running_restart_idle')]
+        for index, (baseline, order, path) in enumerate(cases):
+            with self.subTest(baseline=baseline, order=order, path=path):
+                directory = self.root / str(index)
+                directory.mkdir()
+                store = BoardStore(directory / 'board.sqlite3')
+                reader = Reader(self.now)
+                checkpoint = directory / 'baseline.json'
+                source = ClaudeChatConversationSource(reader, checkpoint)
+                row = self.row()
+                if baseline == 'missing':
+                    row.update(last_settled_at=None, current_leaf_message_uuid=None)
+                reader.snapshot['conversations'][CHAT_A] = row
+                source.scan(store, self.now)
+                row.update(live_status='running', live_status_started_at=start, updated_at=start)
+                reader.snapshot['observed_at'] = start + .1
+                source.scan(store, start + .1)
+                settled = {'before': int(start) - 1, 'same_second': int(start), 'after': int(start) + 2}[order]
+                row.update(last_settled_at=settled, current_leaf_message_uuid=LEAF_B)
+                if path != 'idle':
+                    reader.snapshot['observed_at'] = start + 3
+                    source.scan(store, start + 3)
+                    self.assertEqual(store.get('claude:desktop_chat:' + CHAT_A)['status'], 'cooking')
+                    if path == 'running_restart_idle':
+                        source.close()
+                        source = ClaudeChatConversationSource(reader, checkpoint)
+                row.update(live_status=None, live_status_started_at=None)
+                reader.snapshot['observed_at'] = start + 4
+                source.scan(store, start + 4)
+                item = store.get('claude:desktop_chat:' + CHAT_A)
+                self.assertEqual(item['status'] == 'ready', order != 'before')
+                source.close()
+
+    def test_first_active_snapshot_with_known_history_keeps_same_second_pair_as_baseline(self):
+        self.set_row()
+        self.scan()
+        second = int(self.now) + 1
+        self.set_row(live_status='running', live_status_started_at=second + .75,
+                     last_settled_at=second, current_leaf_message_uuid=LEAF_B,
+                     updated_at=second + .75)
+        self.scan(second + 1 - self.now)
+        self.assertEqual(self.source._state['chats'][CHAT_A]['leaf'], LEAF_B)
+        self.set_row(last_settled_at=second, current_leaf_message_uuid=LEAF_B)
+        self.scan(second + 2 - self.now)
+        self.assertNotEqual(self.item()['status'], 'ready')
 
     def test_partial_marker_update_does_not_consume_later_confirmed_pair(self):
         self.set_row()

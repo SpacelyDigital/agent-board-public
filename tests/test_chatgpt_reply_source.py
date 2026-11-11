@@ -190,6 +190,21 @@ class LastReplyQueueTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(self.reader.completed_replies(), {})
 
+    def test_failed_worker_start_does_not_consume_capacity_or_reply_candidate(self):
+        with patch('chatgpt_status.threading.Thread.start', side_effect=RuntimeError('PRIVATE resource error')) as start:
+            self.scan()
+            self.assertEqual(self.reader._workers, 0)
+            self.assertEqual(self.reader._backoff_until, self.now + 30)
+            self.now += 1
+            self.scan()
+            self.assertEqual(start.call_count, 1)
+            self.assertFalse(self.reader.completed_replies())
+        self.now += 30
+        self.scan(); self.await_idle()
+        self.assertEqual(self.reader._workers, 0)
+        self.assertEqual(len(self.calls), 1)
+        self.assertIn(IDENTIFIER, self.reader.completed_replies())
+
     def test_nullable_update_time_survives_allowlisted_queue_record(self):
         self.reply['updated_at'] = None
         self.scan(); self.await_idle()

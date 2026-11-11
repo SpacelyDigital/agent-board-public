@@ -7,7 +7,7 @@ into dashboard history until new activity without changing the source chat.
 
 ## Current direct build, November 11, 2026
 
-The current local repair candidate is **0.2.5 build 55**, using the direct Mac
+The current local repair candidate is **0.2.5 build 56**, using the direct Mac
 app identifier `local.agentboard.display`. This is distinct from the historical
 App Store candidate below. It is not an App Store release or a newly notarized
 distribution.
@@ -36,6 +36,9 @@ keep their identities and review state.
 Conversation collectors retry after temporary storage or read failures. Connection
 health expires when a collector stops refreshing, and a stalled refresh cannot
 hold the dashboard request open indefinitely. Saved review state is retained.
+Account readers also recover if a worker cannot start. Reply markers are committed
+only when their lifecycle state is saved, and selecting an old ChatGPT branch
+does not create a new reply alert. Usage values are rounded once when displayed.
 
 Local transcript verification follows the verified content history when files
 are replaced or reindexed. An unchanged replacement cannot turn an old reviewed

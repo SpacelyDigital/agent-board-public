@@ -4,7 +4,10 @@ import ctypes
 import json
 import math
 import os
+import re
 import shlex
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -16,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from usage_source import (UsageSource, UsageUnavailable, parse_codex_usage, parse_claude_usage,
                           _claude_token, _copy_keychain_item, fetch_codex_usage, fetch_claude_usage, _fetch_claude_in_process)
 from privacy_network import ProviderRequestError
+from local_quota import parse_codex_observation
 
 
 def write_python_fixture(executable, code):
@@ -36,6 +40,38 @@ class UsageTests(unittest.TestCase):
         short = {"usedPercent": 20, "windowDurationMins": 300, "resetsAt": self.now + 3600}
         for response in (self.codex(primary=weekly), self.codex(primary=short, secondary=weekly)):
             self.assertEqual(parse_codex_usage(response), [{"id": "weekly", "label": "Weekly", "remaining_percent": 5.0, "reset_at": self.now + 86400}])
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required to exercise the dashboard's actual number formatters")
+    def test_provider_percentages_round_once_at_whole_number_display(self):
+        # Values just below .5 must not cross the whole-number threshold after
+        # an intermediate two-decimal rounding step in either provider parser.
+        readings, expected = [], []
+        for used, display in ((55.504, "44"), (99.504, "0"), (0.504, "99"),
+                              (55.5, "45"), (55.496, "45"), (0, "100")):
+            readings.extend([
+                parse_claude_usage({"seven_day": {"utilization": used, "resets_at": self.now + 86400}})[0]["remaining_percent"],
+                parse_codex_usage(self.codex(primary={"usedPercent": used, "windowDurationMins": 10080,
+                                                       "resetsAt": self.now + 86400}))[0]["remaining_percent"],
+                parse_codex_observation({"secondary": {"used_percent": used, "window_minutes": 10080,
+                                                         "resets_at": self.now + 86400}}, self.now, now=self.now)["windows"][0]["remaining_percent"],
+            ])
+            expected.extend([display] * 3)
+        app = (Path(__file__).resolve().parents[1] / "static/app.js").read_text()
+        declarations = []
+        for name in ("percentFormat", "creditFormat", "dollarFormat"):
+            match = re.search(r"const " + name + r" = new Intl\.NumberFormat\([^\n]+", app)
+            self.assertIsNotNone(match)
+            declarations.append(match.group(0).replace("undefined,", '"en-US",'))
+        program = "\n".join(declarations) + """
+const values = JSON.parse(process.argv[1]);
+process.stdout.write(JSON.stringify({percentages: values.map(value => percentFormat.format(value)),
+  credits: [12345.6789, 0, -12.5].map(value => creditFormat.format(value)),
+  dollars: [24.5, 0].map(value => dollarFormat.format(value))}));
+"""
+        rendered = json.loads(subprocess.check_output([shutil.which("node"), "-e", program, json.dumps(readings)], text=True))
+        self.assertEqual(rendered["percentages"], expected)
+        self.assertEqual(rendered["credits"], ["12,346", "0", "-13"])
+        self.assertEqual(rendered["dollars"], ["$25", "$0"])
 
     def test_codex_explicit_bucket_wins_over_legacy_view(self):
         response = self.codex(primary={"usedPercent": 1, "windowDurationMins": 10080, "resetsAt": self.now + 60})

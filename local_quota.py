@@ -117,7 +117,8 @@ def parse_codex_observation(rate_limits: Any, observed_at: Any, *, now: float) -
         if (used is None or not 0 <= used <= 100 or reset is None or not reset.is_integer()
                 or not _EARLIEST <= reset < _LATEST or abs(reset - observed) > _MAX_RESET_DISTANCE):
             continue
-        value = {"id": "weekly", "label": "Weekly", "remaining_percent": round(100 - used, 2),
+        # Intermediate rounding can push a value below .5 over the UI threshold.
+        value = {"id": "weekly", "label": "Weekly", "remaining_percent": 100 - used,
                  "reset_at": reset}
         if windows and windows[0] != value:
             windows = []

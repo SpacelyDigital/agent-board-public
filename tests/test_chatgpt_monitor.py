@@ -345,6 +345,79 @@ class ChatGPTMonitorTests(unittest.TestCase):
         finally:
             reader.close()
 
+    def test_real_async_reader_short_reply_dedup_review_and_restore_workflow(self):
+        from chatgpt_reply_source import parse_last_reply
+        clock = [self.now]
+        metadata = {}
+        credentials = ['fixture-token', 'fixture-account']
+        response = {'conversation_id': CHAT_B, 'current_node': 'fixture-assistant',
+            'is_archived': False, 'is_temporary_chat': False,
+            'page_info': {'has_next_page': False}, 'messages': [{
+                'id': 'fixture-assistant', 'author': {'role': 'assistant'},
+                'status': 'finished_successfully', 'end_turn': True,
+                'channel': 'final', 'recipient': 'all', 'metadata': {},
+                'create_time': self.now + 5, 'update_time': self.now + 6,
+                'content': {'parts': ['Disposable response fixture']}}]}
+        replies_requested = []
+        def reply_request(identifier, *_):
+            replies_requested.append(identifier)
+            return parse_last_reply(response, identifier, now=clock[0])
+        def create_source():
+            reader = ChatGPTStatusReader(self.root, request=lambda *_: 'COMPLETE',
+                metadata_request=lambda *_: dict(metadata), reply_request=reply_request,
+                clock=lambda: clock[0])
+            return ChatGPTConversationSource(ChatGPTSource(self.path), reader,
+                state_path=self.root / 'chatgpt-chat-baseline.json', clock=lambda: clock[0])
+        def settle():
+            # Drain the actual nonblocking discovery/status/reply pipeline.
+            for _ in range(4):
+                self.source.scan(self.store, clock[0])
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    with self.source.status_reader._lock:
+                        if self.source.status_reader._workers == 0:
+                            break
+                    time.sleep(.005)
+                else:
+                    self.fail('Fixture reader did not settle')
+        self.source = create_source()
+        try:
+            with patch('chatgpt_status._read_credentials', side_effect=lambda _: tuple(credentials)):
+                settle()
+                self.assertEqual(replies_requested, [])
+                clock[0] += 11
+                metadata[CHAT_B] = dict(title='Browser-only fixture', source_created_at=self.now + 5,
+                                       source_updated_at=self.now + 6)
+                settle()
+                ready = self.item(CHAT_B)
+                self.assertEqual(ready['status'], 'ready')
+                self.assertEqual(replies_requested, [CHAT_B])
+                self.assertEqual(len(self.store.snapshot()['sessions']), 1)
+                self.store.review(ready['key'], ready['event_id'])
+                # The desktop indexes the same UUID after the browser reply.
+                self.add(CHAT_B, title='Stale desktop title')
+                clock[0] += 11
+                metadata[CHAT_B] = dict(metadata[CHAT_B], title='Renamed browser fixture',
+                                       source_updated_at=clock[0])
+                credentials[0] = 'refreshed-token'
+                settle()
+                self.assertEqual(self.item(CHAT_B)['title'], 'Renamed browser fixture')
+                self.assertEqual(self.item(CHAT_B)['reviewed_event'], ready['event_id'])
+                self.assertEqual(len(self.store.snapshot()['history']), 1)
+                self.source.close()
+                self.source = create_source()
+                self.store = BoardStore(self.root / 'board.sqlite3')
+                settle()
+                self.assertFalse(self.item(CHAT_B)['notification_eligible'])
+                self.store.restore(ready['key'])
+                settle()
+                restored = self.item(CHAT_B)
+                self.assertEqual(restored['event_id'], ready['event_id'])
+                self.assertIsNone(restored['reviewed_event'])
+                self.assertEqual(len(self.store.snapshot()['sessions']), 1)
+        finally:
+            self.source.status_reader.close()
+
     def test_account_change_fences_pending_and_persisted_stream_recovery(self):
         self.reader.set('IS_STREAMING', self.now)
         self.scan()
@@ -543,6 +616,49 @@ class ChatGPTMonitorTests(unittest.TestCase):
         self.reader.reply(CHAT_A, 'd', self.now + 1, self.now + 2, self.now + 3)
         self.scan(3)
         self.assertEqual(self.item()['status'], 'ready')
+
+    def test_newer_historical_branch_after_activation_does_not_create_attention(self):
+        # The board may predate this collector by days. Both historical replies
+        # would pass BoardStore's older activation cutoff, so the collector must
+        # enforce its own activation baseline for branch selection too.
+        self.now += 1000
+        self.enable_markers()
+        self.reader.set('COMPLETE', self.now)
+        self.reader.reply(CHAT_A, 'a', self.now - 600, self.now - 500, self.now)
+        self.scan()
+        self.reader.reply(CHAT_A, 'b', self.now - 400, self.now - 300, self.now + 1)
+        self.scan(1)
+        self.assertIsNone(self.item())
+        self.assertFalse(self.store.snapshot()['sessions'])
+        self.assertEqual(self.source._baseline['chats'][CHAT_A]['reply_id'], 'b' * 64)
+        self.assertEqual(self.reader.acknowledged[CHAT_A]['reply_id'], 'b' * 64)
+        self.reader.reply(CHAT_A, 'c', self.now + 2, self.now + 3, self.now + 4)
+        self.scan(4)
+        self.assertEqual(self.item()['status'], 'ready')
+        self.assertTrue(self.item()['notification_eligible'])
+
+    def test_historical_branch_keeps_review_and_owner_restore_across_restart(self):
+        self.now += 1000
+        self.store.apply([dict(provider='chatgpt', source_kind='desktop_chat',
+            id='desktop_chat:' + CHAT_A, title='Previously monitored chat', status='ready',
+            event_id='previously-confirmed-reply', updated_at=self.now - 500)], self.now - 499)
+        saved = self.item()
+        self.store.review(saved['key'], saved['event_id'])
+        self.enable_markers()
+        self.reader.set('COMPLETE', self.now)
+        self.reader.reply(CHAT_A, 'a', self.now - 600, self.now - 500, self.now)
+        self.scan()
+        self.reader.reply(CHAT_A, 'b', self.now - 400, self.now - 300, self.now + 1)
+        self.scan(1)
+        self.assertEqual(self.item()['reviewed_event'], saved['event_id'])
+        self.assertEqual(self.item()['event_id'], saved['event_id'])
+        self.assertFalse(self.item()['notification_eligible'])
+        self.store.restore(saved['key'])
+        self.restart_markers()
+        self.scan(2)
+        self.assertIsNone(self.item()['reviewed_event'])
+        self.assertEqual(self.item()['event_id'], saved['event_id'])
+        self.assertEqual(len(self.store.snapshot()['sessions']), 1)
 
     def test_nullable_finish_uses_message_order_and_observation_display_time(self):
         self.enable_markers()

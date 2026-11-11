@@ -77,7 +77,8 @@ def _window(ident: str, label: str, used: Any, reset: Any) -> dict[str, Any] | N
     percent, reset_at = _number(used), _epoch(reset)
     if percent is None or not 0 <= percent <= 100 or reset_at is None:
         return None
-    return {"id": ident, "label": label, "remaining_percent": round(100 - percent, 2), "reset_at": reset_at}
+    # Preserve precision until the dashboard rounds once to a whole percent.
+    return {"id": ident, "label": label, "remaining_percent": 100 - percent, "reset_at": reset_at}
 
 
 def parse_codex_usage(response: dict[str, Any], *, include_credits: bool = False) -> list[dict[str, Any]] | dict[str, Any]:

@@ -245,6 +245,24 @@ class CachedReaderTests(unittest.TestCase):
         self.assertEqual(current["conversations"], {})
         self.assertEqual(current["retry_at"], NOW + 10)
 
+    def test_failed_worker_start_releases_slot_and_retries_without_restart(self):
+        calls = []
+        reader = self.make_reader(lambda: (calls.append(True), snapshot())[1])
+        with patch("claude_chat_source.threading.Thread.start", side_effect=RuntimeError("PRIVATE resource error")) as start:
+            result = reader.scan(self.now)
+            self.assertFalse(reader._busy)
+            self.assertFalse(result["available"])
+            self.assertEqual(result["error_code"], "unavailable")
+            self.assertNotIn("PRIVATE", json.dumps(result))
+            self.now += 1
+            reader.scan(self.now)
+            self.assertEqual(start.call_count, 1)
+        self.assertFalse(calls)
+        self.now += 30
+        reader.scan(self.now); self.settle(reader)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(reader.scan(self.now)["available"])
+
     def test_account_change_clears_rows_and_discards_inflight_old_result(self):
         release = threading.Event()
         reader = self.make_reader(lambda: (release.wait(2), snapshot())[1])

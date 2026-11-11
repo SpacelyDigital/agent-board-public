@@ -302,9 +302,12 @@ class ChatGPTConversationSource:
                 prior_order = (prior["updated_at"] if both_finished else prior["created_at"]) if known_prior else None
                 changed = known_prior and reply["reply_id"] != prior["reply_id"] and (
                     current_order > prior_order or current_order == prior_order and progress_matches)
-                first = (prior is None or prior.get("reply_id") is None) and (
-                    provider_time > self._baseline["initialized_at"] or progress_matches)
-                if changed or first:
+                first = not known_prior
+                new_activity = provider_time > self._baseline["initialized_at"] or progress_matches
+                # Selecting a newer historical branch changes the current leaf
+                # without creating a reply. Advance its baseline silently until
+                # the provider marker proves activity after monitoring began.
+                if (changed or first) and new_activity:
                     event = f"chatgpt-reply:{uuid}:{self.account_identity}:{reply['reply_id']}"
                     event_time = reply["updated_at"] if reply["updated_at"] is not None else reply["observed_at"]
                     saved = store.get("chatgpt:" + ident)

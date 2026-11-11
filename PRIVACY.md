@@ -1,6 +1,6 @@
 # Agent Board privacy
 
-Agent Board is a local Mac dashboard for existing Codex and Claude Code chats.
+Agent Board is a local Mac dashboard for existing Codex, ChatGPT, Claude Code and Claude chats.
 It has no analytics, advertising, tracking pixels, crash-upload service or
 developer-operated backend. It does not send chats, account details, usage
 statistics, diagnostics or crash reports to Spacely Digital or a reporting

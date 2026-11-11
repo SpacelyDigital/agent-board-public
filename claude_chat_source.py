@@ -335,8 +335,15 @@ class ClaudeChatAccountReader:
                 self._error = "authentication"
             if not self._closed and revision is not None and not self._busy and now >= self._next_at:
                 self._busy = True
-                threading.Thread(target=self._refresh, args=(self._generation, revision), daemon=True,
-                                 name="claude-chat-metadata").start()
+                try:
+                    threading.Thread(target=self._refresh, args=(self._generation, revision), daemon=True,
+                                     name="claude-chat-metadata").start()
+                except Exception:
+                    # A transient OS thread limit must not leave a nonexistent
+                    # worker marked busy for the rest of this app session.
+                    self._busy = False
+                    self._error = "unavailable"
+                    self._next_at = now + max(30.0, self._rate_floor)
             fresh = bool(not self._closed and revision is not None and self._at is not None
                          and 0 <= now - self._at <= FRESH_SECONDS)
             return {"available": fresh, "fresh": fresh, "observed_at": self._at,

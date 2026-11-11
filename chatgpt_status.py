@@ -292,7 +292,15 @@ class ChatGPTStatusReader:
             self._queue = due if now >= self._backoff_until else []
             while self._queue and self._workers < 2:
                 self._workers += 1
-                threading.Thread(target=self._work, daemon=True, name="agent-board-chatgpt-status").start()
+                try:
+                    threading.Thread(target=self._work, daemon=True, name="agent-board-chatgpt-status").start()
+                except Exception:
+                    # Only successfully started workers own a slot. Keep
+                    # scheduling bounded when temporary OS resources run out.
+                    self._workers -= 1
+                    self._queue.clear()
+                    self._backoff_until = max(self._backoff_until, now + 30)
+                    break
             return {identifier: {**reading, "fresh": 0 <= now - reading["observed_at"] <= 15}
                     for identifier in ids if (reading := self._cache.get(identifier)) is not None}
 

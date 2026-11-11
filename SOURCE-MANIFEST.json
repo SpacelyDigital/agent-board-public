@@ -66,14 +66,14 @@
     },
     {
       "path": "PRIVACY.md",
-      "bytes": 13961,
-      "sha256": "cce0c8b350743f84426c6dc6589ee82cc548c7d2d663f867ebfd4177a4dd985b",
+      "bytes": 13978,
+      "sha256": "343a9d34f2e52bd6618fce601e717066dce19db990006ecdb3351855c8d4e335",
       "mode": 420
     },
     {
       "path": "README.md",
-      "bytes": 13230,
-      "sha256": "b6023d3ded0c2c6eac5b2fb7e21d2733a03f0066fb69bebc71e03b640d5a42ab",
+      "bytes": 13472,
+      "sha256": "56394e690d7f207807498c9996321a1e20f64b5e1536054ea03d23db79191d46",
       "mode": 420
     },
     {
@@ -132,8 +132,8 @@
     },
     {
       "path": "chatgpt_monitor.py",
-      "bytes": 22062,
-      "sha256": "9f65f63bae1619d68bc508ec102a5b5de1060733808a1a23314f45a64ba67607",
+      "bytes": 22289,
+      "sha256": "9ec1889c6f14fc7d3e63f47aa78881bcabc88cf3ee95bc714bd2880302784eff",
       "mode": 420
     },
     {
@@ -150,20 +150,20 @@
     },
     {
       "path": "chatgpt_status.py",
-      "bytes": 25644,
-      "sha256": "981de5ea884713963265213292a1aa10bc89613fbc9d2b788d77c1ad142080d8",
+      "bytes": 26036,
+      "sha256": "d6f2079fe2ec5b88e7298916c4e60783037bfdd0fa9f29f2fc5c18928f474d28",
       "mode": 420
     },
     {
       "path": "claude_chat_monitor.py",
-      "bytes": 18180,
-      "sha256": "b7e7f8b90e713f42fc8301ed5e1306437fd77d58bf2617464a10b8053b9d39ef",
+      "bytes": 20227,
+      "sha256": "063cbb9fea19b6305432c4390dda11f768d7be803b49783fd9a8d346de1d4142",
       "mode": 420
     },
     {
       "path": "claude_chat_source.py",
-      "bytes": 18025,
-      "sha256": "21ad18d0dd76a99042437e9e4eb9509d5aec5ac865a6073763008543d186d074",
+      "bytes": 18399,
+      "sha256": "6c94a4c74f6085b35c470a4a563b763cbbf0deda08a72bea1d656a5983bfbfc1",
       "mode": 420
     },
     {
@@ -438,8 +438,8 @@
     },
     {
       "path": "local_quota.py",
-      "bytes": 13477,
-      "sha256": "5afb309a21b3517d2e32d09f1bc0ae1ce6beebb74fef45abf3eb0200f64d9d05",
+      "bytes": 13548,
+      "sha256": "4157da45d5df8bfd62f003554143d6528efe8fd59fc8b70455bfb7ef05453201",
       "mode": 420
     },
     {
@@ -510,8 +510,8 @@
     },
     {
       "path": "static/about/index.html",
-      "bytes": 7620,
-      "sha256": "5861e1496352ee79318d6c988ddf03b4f23ff18dfcae0db6fe092475ed3eca3b",
+      "bytes": 8162,
+      "sha256": "3e523d26e77a4febd6eedad830da873eb76cf8f0eecfa4683edec5038ec6beb8",
       "mode": 420
     },
     {
@@ -966,14 +966,14 @@
     },
     {
       "path": "tests/test_chatgpt_monitor.py",
-      "bytes": 31416,
-      "sha256": "205ca3165cf1aff01225ea4ceac1bbcd8599545b1642a7b2287a6d81f3241880",
+      "bytes": 37846,
+      "sha256": "1f54908d4efae50846dcdebfb5d250f38c46d378280ba1f0c02277958a081a76",
       "mode": 420
     },
     {
       "path": "tests/test_chatgpt_reply_source.py",
-      "bytes": 16022,
-      "sha256": "cf1fca0decd3a6ec029660e1186b63ff1fd1fe7ce3c343f9883c705f95cf9a48",
+      "bytes": 16766,
+      "sha256": "8d6eb69f0cb4f17f99b1686efd3fec0dc9a31dc693e90b03bf3496e9b0d3775a",
       "mode": 420
     },
     {
@@ -990,14 +990,14 @@
     },
     {
       "path": "tests/test_claude_chat_monitor.py",
-      "bytes": 17804,
-      "sha256": "892755108274a416229267356d5caf88289a2fa25be652652b7b6c3a049cef08",
+      "bytes": 27554,
+      "sha256": "e369bb90233ec65e4a16d09701f6a445c51861e355fc9c3ef5d049ae814ad93d",
       "mode": 420
     },
     {
       "path": "tests/test_claude_chat_source.py",
-      "bytes": 18670,
-      "sha256": "a2add0672e5539781dbed62251879eb1bac4bdc81777096109fa2a7c57051859",
+      "bytes": 19555,
+      "sha256": "7daf257330f15ac1206deee4aa4a64afb49a1e3d348ffaeca1857ff744de2dff",
       "mode": 420
     },
     {
@@ -1170,8 +1170,8 @@
     },
     {
       "path": "tests/test_usage.py",
-      "bytes": 26736,
-      "sha256": "7f1919f07e52767a31e6e8284d66cd83d83665566a6f03ebbb1306e38763fcb9",
+      "bytes": 29100,
+      "sha256": "b3911e6fb7664547b5bb873218ae140f38d132f38c5f97f7e12e01e740c86cf5",
       "mode": 420
     },
     {
@@ -1200,8 +1200,8 @@
     },
     {
       "path": "usage_source.py",
-      "bytes": 27901,
-      "sha256": "431dd22edc5dcce9cf208da493cbcf89cee3952e9eff024e23ecc3f571fcafae",
+      "bytes": 27968,
+      "sha256": "e4b75c4aa855eb1ebac9932b32f3366220098041ec0c03a697db89ce108d0f79",
       "mode": 420
     }
   ]

@@ -264,12 +264,23 @@ class ClaudeChatConversationSource:
                     changed = (prior is not None and prior["settled_at"] is not None
                                and item["settled_at"] > prior["settled_at"] and item["leaf"] != prior["leaf"])
                     first_pending_reply = (prior is not None and prior["settled_at"] is None
-                                           and started is not None and item["leaf"] != prior["leaf"])
+                                           and started is not None and item["settled_at"] >= math.floor(started)
+                                           and item["leaf"] != prior["leaf"])
+                    # Older collectors could save a completed pair before the
+                    # provider cleared its running flag. A fresh idle receipt
+                    # can recover that pending turn only when the settlement
+                    # is strictly later than its start; same-second history
+                    # does not provide that proof.
+                    saved_pending_reply = (prior is not None and started is not None
+                                           and item["settled_at"] > started
+                                           and item["settled_at"] == prior["settled_at"]
+                                           and item["leaf"] == prior["leaf"])
                     newly_settled = (not initial_snapshot and prior is None and (
                         item["settled_at"] > self._state["initialized_at"] or
                         item["created_at"] is not None and item["created_at"] > self._state["initialized_at"]
                         and item["settled_at"] >= math.floor(item["created_at"])))
-                    if changed or first_pending_reply or newly_settled:
+                    attributable_pair = started is None or item["settled_at"] >= math.floor(started)
+                    if (changed and attributable_pair) or first_pending_reply or saved_pending_reply or newly_settled:
                         status = "ready"
                         event = self._event("reply", scope, ident, item["settled_at"], item["leaf"])
                         turn = self._event("turn", scope, ident, started) if started is not None else event
@@ -279,7 +290,21 @@ class ClaudeChatConversationSource:
                 # branch selection), a lone timestamp, or an unknown live state
                 # must not consume the later confirmed completion marker.
                 known_state = item["live_status"] is None or item["live_status"] == "running" or item["needs_input"]
+                # Settlement and live status can arrive in separate snapshots.
+                # Keep a new pair unconsumed while it belongs to the active
+                # turn, so the subsequent idle snapshot can confirm Ready.
+                # A settlement before a later turn began is only that turn's
+                # baseline. First-seen same-second history is also ambiguous.
+                advanced_pending_start = (prior is not None and prior["pending_started_at"] is not None
+                    and item["live_started_at"] is not None
+                    and item["live_started_at"] > prior["pending_started_at"])
+                same_pending_turn = (prior is not None and prior["pending_started_at"] is not None
+                                     and not advanced_pending_start)
+                pending_settlement = (status in {"cooking", "needs_you"} and started is not None
+                    and item["settled_at"] is not None and item["settled_at"] >= math.floor(started)
+                    and (same_pending_turn or item["settled_at"] > started))
                 if (known_state and item["settled_at"] is not None and item["leaf"] is not None
+                        and not pending_settlement
                         and (record["settled_at"] is None or
                              item["settled_at"] > record["settled_at"] and item["leaf"] != record["leaf"])):
                     record["settled_at"] = item["settled_at"]
