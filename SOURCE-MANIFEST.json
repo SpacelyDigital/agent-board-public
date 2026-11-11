@@ -1,5 +1,5 @@
 {
-  "source_files": 199,
+  "source_files": 200,
   "automated_private_content_scan": "passed",
   "publication": "not uploaded",
   "open_source_license": "not selected",
@@ -72,8 +72,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 12989,
-      "sha256": "18c3c8e4611f2f55bab620fdb9301274da7abab0ab11f55e6a147b1c3c43b248",
+      "bytes": 13230,
+      "sha256": "b6023d3ded0c2c6eac5b2fb7e21d2733a03f0066fb69bebc71e03b640d5a42ab",
       "mode": 420
     },
     {
@@ -132,8 +132,8 @@
     },
     {
       "path": "chatgpt_monitor.py",
-      "bytes": 21063,
-      "sha256": "be50c56e6adc7f42c5bd67066f27e92b9023431c092cd33371a1deeee62ae874",
+      "bytes": 22062,
+      "sha256": "9f65f63bae1619d68bc508ec102a5b5de1060733808a1a23314f45a64ba67607",
       "mode": 420
     },
     {
@@ -444,8 +444,8 @@
     },
     {
       "path": "prepare_source.py",
-      "bytes": 6200,
-      "sha256": "24c44d508406d545f42504f48c6a2cdc52e5da3ebb8e1694dc33ac06ccb35257",
+      "bytes": 6234,
+      "sha256": "ecc18a33206668fbab67a5a3db99ee82deea45675b28391e69eed1e85652c0d8",
       "mode": 420
     },
     {
@@ -486,8 +486,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 67633,
-      "sha256": "3d1f04696d1c84b1a4674f9674588fcc756dab4da60e847e03523b5c3f527bfa",
+      "bytes": 72084,
+      "sha256": "1c4f3899937ca8b07a0e28a61af70544c4d6001fe86ffa1093e194572408a90a",
       "mode": 420
     },
     {
@@ -966,8 +966,8 @@
     },
     {
       "path": "tests/test_chatgpt_monitor.py",
-      "bytes": 28441,
-      "sha256": "22734645f8749f357529671990e75147b612038ca0c8b4d338dc3904a79a6cb0",
+      "bytes": 31416,
+      "sha256": "205ca3165cf1aff01225ea4ceac1bbcd8599545b1642a7b2287a6d81f3241880",
       "mode": 420
     },
     {
@@ -1040,6 +1040,12 @@
       "path": "tests/test_codex_sqlite_snapshot.py",
       "bytes": 38551,
       "sha256": "0d24bf876953522ad74da79b625a5963e489cbcf1043655a6ce7d708db22cebe",
+      "mode": 420
+    },
+    {
+      "path": "tests/test_collector_recovery.py",
+      "bytes": 10722,
+      "sha256": "3b9ea9946326c52c348dc405c5f9d21251fd31f84fd48d3255048764889d8ab0",
       "mode": 420
     },
     {

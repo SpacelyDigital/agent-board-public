@@ -475,6 +475,59 @@ class ChatGPTMonitorTests(unittest.TestCase):
         self.assertEqual(self.item()['status'], 'needs_you')
         self.assertFalse(self.source.pending)
 
+    def test_failed_terminal_write_replays_same_receipt_without_consuming_turn(self):
+        for marker_mode, state, expected in ((True, 'FAILURE', 'needs_you'),
+                                             (False, 'COMPLETE', 'ready')):
+            with self.subTest(marker_mode=marker_mode, state=state):
+                if marker_mode:
+                    self.enable_markers()
+                else:
+                    self.source.close()
+                    self.source = ChatGPTConversationSource(ChatGPTSource(self.path), self.reader)
+                started = self.now + (10 if not marker_mode else 0)
+                self.reader.set('IS_STREAMING', started)
+                self.source.scan(self.store, started)
+                original = self.store.apply
+                def fail_terminal(rows, now):
+                    if any(row['status'] == expected and not row.get('metadata_only') for row in rows):
+                        raise sqlite3.OperationalError('Synthetic lifecycle write failure')
+                    return original(rows, now)
+                self.reader.set(state, started + 2)
+                with patch.object(self.store, 'apply', fail_terminal):
+                    with self.assertRaises(sqlite3.DatabaseError):
+                        self.source.scan(self.store, started + 2)
+                self.assertFalse(self.source.available)
+                self.assertEqual(self.item()['status'], 'cooking')
+                self.source.scan(self.store, started + 3)
+                ready = self.item()
+                self.assertEqual(ready['status'], expected)
+                self.store.review(ready['key'], ready['event_id'])
+                self.source.scan(self.store, started + 4)
+                self.assertFalse(self.item()['notification_eligible'])
+                self.assertEqual(self.item()['reviewed_event'], ready['event_id'])
+
+    def test_failed_verified_reply_write_keeps_receipt_unacknowledged_until_saved(self):
+        self.enable_markers()
+        self.reader.set('IS_STREAMING', self.now)
+        self.scan()
+        turn = self.item()['turn_id']
+        self.reader.set('COMPLETE', self.now + 3)
+        self.reader.reply(CHAT_A, 'b', self.now + 1, self.now + 2, self.now + 3)
+        original = self.store.apply
+        def fail_ready(rows, now):
+            if any(row['status'] == 'ready' for row in rows):
+                raise sqlite3.OperationalError('Synthetic reply write failure')
+            return original(rows, now)
+        with patch.object(self.store, 'apply', fail_ready):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.scan(3)
+        self.assertFalse(self.reader.acknowledged)
+        self.assertEqual(self.source._baseline['chats'][CHAT_A]['reply_id'], None)
+        self.scan(4)
+        self.assertEqual(self.item()['status'], 'ready')
+        self.assertEqual(self.item()['turn_id'], turn)
+        self.assertEqual(self.reader.acknowledged[CHAT_A]['reply_id'], 'b' * 64)
+
     def test_old_branch_and_equal_timestamp_without_progress_do_not_alert(self):
         self.enable_markers()
         self.reader.set('COMPLETE', self.now)

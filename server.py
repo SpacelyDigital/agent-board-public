@@ -50,6 +50,9 @@ else:
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("agent-board")
+SNAPSHOT_LOCK_TIMEOUT = 1.0
+STATUS_HEARTBEAT_SECONDS = 15.0
+PROJECT_HEARTBEAT_SECONDS = 45.0
 
 
 class _UnselectedSource:
@@ -121,6 +124,11 @@ class Monitor:
         self.interval = interval
         self.health = []
         self.lock = threading.RLock()
+        # This lock never covers storage or provider reads, so a stalled scan
+        # cannot also prevent the HTTP endpoint from reporting stale health.
+        self.refresh_lock = threading.Lock()
+        self.refresh_state = {name: {"completed": time.monotonic(), "failed": False}
+                              for name in ("status", "projects")}
         self.stop = threading.Event()
         self.last_scan = None
         self.token = secrets.token_urlsafe(32)
@@ -191,7 +199,59 @@ class Monitor:
                               for provider, name in (("codex", "Codex"), ("claude", "Claude"))], now)
             self.scan()
 
+    def _refresh_result(self, name, success):
+        with self.refresh_lock:
+            self.refresh_state[name]["failed"] = not success
+            if success:
+                self.refresh_state[name]["completed"] = time.monotonic()
+
+    @staticmethod
+    def _warn(message, *args):
+        # The same storage outage can also make the collector log unwritable.
+        # Logging must never become a second failure in a recovery handler.
+        try:
+            LOG.warning(message, *args)
+        except Exception:
+            pass
+
+    def refresh_health(self):
+        """In-memory collector health, independent of conversation timestamps."""
+        now = time.monotonic()
+        with self.refresh_lock:
+            result = {name: not state["failed"] and 0 <= now - state["completed"] <= limit
+                      for name, state in self.refresh_state.items()
+                      for limit in (max(STATUS_HEARTBEAT_SECONDS, self.interval * 3)
+                                    if name == "status" else PROJECT_HEARTBEAT_SECONDS,)}
+        return result
+
+    def _health_snapshot(self):
+        fresh = self.refresh_health()
+        local = copy.deepcopy(self.health)
+        if not fresh["status"]:
+            if not local:
+                local = [{"id": provider, "name": name, "last_seen": None}
+                         for provider, name in (("codex", "Codex"), ("claude", "Claude Code"))]
+                local.extend({"id": source.source_id, "name": source.name + " chats", "last_seen": None}
+                             for source in self.desktop_chat_sources.values())
+            for item in local:
+                item.update(available=False, detail="Conversation status is not refreshing. Its last saved state is unconfirmed.")
+        project = copy.deepcopy(self.project_health)
+        if project and not fresh["projects"]:
+            project.update(available=False, detail="Claude project status is not refreshing. Its last saved state is unconfirmed.")
+        return local + ([project] if project else [])
+
     def scan(self):
+        # Also protects the initial scan, which runs before the HTTP listener
+        # and retry workers exist. Recovery must not require another DB write.
+        try:
+            self._scan()
+        except Exception:
+            self._refresh_result("status", False)
+            self._warn("Conversation refresh failed; retrying without recording source contents.")
+        else:
+            self._refresh_result("status", True)
+
+    def _scan(self):
         with self.lock:
             if self.sample_mode:
                 self.last_scan = time.time()
@@ -200,6 +260,7 @@ class Monitor:
                                 "last_seen": self.last_scan}]
                 return
             health = []
+            scan_failed = False
             local_codex_readings = []
             now = time.time()
             for source in self.sources:
@@ -256,14 +317,21 @@ class Monitor:
                 except Exception:
                     # Provider exceptions can contain paths, chat text or token
                     # values. Keep diagnostics local and free of their contents.
-                    LOG.warning("%s source scan failed; retrying without recording source contents.", provider)
-                    self.store.mark_unavailable(provider, "The source could not be read. Its last working state is unconfirmed.", source_kind="local" if provider == "claude" else None)
+                    scan_failed = True
+                    self._warn("%s source scan failed; retrying without recording source contents.", provider)
                     health.append({"id": provider, "name": "Codex" if provider == "codex" else "Claude Code", "available": False,
                                    "detail": "Local session data could not be read. Retrying automatically.", "last_seen": self.last_scan})
             for source in self.desktop_chat_sources.values():
-                health.append(source.scan(self.store, time.time()))
+                try:
+                    health.append(source.scan(self.store, time.time()))
+                except Exception:
+                    scan_failed = True
+                    self._warn("Regular chat refresh failed; retrying without recording source contents.")
+                    health.append({"id": source.source_id, "name": source.name + " chats", "available": False,
+                                   "detail": "Chat status could not be refreshed. Retrying automatically.", "last_seen": self.last_scan})
             self.health = health
-            self.last_scan = now
+            if not scan_failed:
+                self.last_scan = time.time()
             if self.sandbox:
                 self.refresh_local_usage(local_codex_readings, now)
 
@@ -295,7 +363,13 @@ class Monitor:
 
     def run(self):
         while not self.stop.is_set():
-            self.scan()
+            try:
+                self.scan()
+            except Exception:
+                # Keep the retry loop alive even if a future scan wrapper has
+                # a bug. Error reporting here remains entirely in memory.
+                self._refresh_result("status", False)
+                self._warn("Conversation collector interrupted; retrying without recording source contents.")
             self.stop.wait(self.interval)
 
     def run_usage(self):
@@ -309,7 +383,7 @@ class Monitor:
                 with self.usage_lock:
                     self.usage = copy.deepcopy(result)
             except Exception:
-                LOG.warning("Usage refresh failed; retaining explicitly stale values until retry.")
+                self._warn("Usage refresh failed; retaining explicitly stale values until retry.")
                 with self.usage_lock:
                     for item in self.usage:
                         item.update(available=False, loading=False,
@@ -321,17 +395,21 @@ class Monitor:
     def scan_projects(self):
         if self.project_source is None:
             return
+        try:
+            self._scan_projects()
+        except Exception:
+            self._refresh_result("projects", False)
+            self._warn("Project refresh failed; retrying without recording source contents.")
+        else:
+            self._refresh_result("projects", True)
+
+    def _scan_projects(self):
         # Cloud account reads never hold the lock used by local status and UI
         # actions. The result is applied atomically after its bounded request.
         with self.lock:
             self.project_source.tracked_ids = {ident for ident in self.store.session_ids("claude") if ident.startswith("project:")}
         now = time.time()
-        try:
-            observations, health = self.project_source.scan(now, self.store.activated_at)
-        except Exception:
-            observations = []
-            health = {"id": "claude_projects", "name": "Claude projects", "available": False,
-                      "detail": "Claude project status could not be read. Retrying automatically.", "last_seen": None}
+        observations, health = self.project_source.scan(now, self.store.activated_at)
         with self.lock:
             received_at = time.time()
             self.store.apply(observations, received_at)
@@ -347,20 +425,26 @@ class Monitor:
             return
         while not self.stop.is_set():
             started = time.monotonic()
-            self.scan_projects()
+            try:
+                self.scan_projects()
+            except Exception:
+                self._refresh_result("projects", False)
+                self._warn("Project collector interrupted; retrying without recording source contents.")
             # Keep a start-to-start cadence. Slow history verification must
             # not add another full polling interval to the visible state lag.
             self.stop.wait(max(0, 15 - (time.monotonic() - started)))
 
     def snapshot(self):
-        with self.lock:
+        if not self.lock.acquire(timeout=SNAPSHOT_LOCK_TIMEOUT):
+            raise OSError("The local collector is still refreshing.")
+        try:
             snapshot = self.store.snapshot(hidden_desktop_providers=self.hidden_desktop_providers)
             now = time.time()
             for provider, source in self.desktop_chat_sources.items():
                 idle = source.open_chats(now)
                 saved = self.store.session_ids(provider, candidates=idle)
                 snapshot["background"].extend(item for ident, item in idle.items() if ident not in saved)
-            sources = copy.deepcopy(self.health + ([self.project_health] if self.project_health else []))
+            sources = self._health_snapshot()
             source_health = {source.get("id"): source for source in sources}
             for group in ("sessions", "history", "background"):
                 for item in snapshot[group]:
@@ -393,6 +477,14 @@ class Monitor:
             with self.usage_lock:
                 snapshot["usage"] = copy.deepcopy(self.usage)
             return snapshot
+        except (sqlite3.DatabaseError, OSError):
+            # A failed read cannot leave the last successful footer claiming
+            # connected while the store is unavailable. No DB fallback here.
+            self._refresh_result("status", False)
+            self._refresh_result("projects", False)
+            raise
+        finally:
+            self.lock.release()
 
     def open_desktop_chat(self, key):
         with self.lock:
@@ -533,7 +625,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/") and not self.authorized_display():
             return self.respond(403, {"error": "Open this board in the Agent Board app."})
         if path == "/api/health":
-            return self.respond(200, {"ok": True, "app": "agent-board", "instance_id": getattr(self.server, "instance_id", None), "last_scan": self.monitor.last_scan})
+            return self.respond(200, {"ok": True, "app": "agent-board", "instance_id": getattr(self.server, "instance_id", None),
+                                      "last_scan": self.monitor.last_scan, "collectors": self.monitor.refresh_health()})
         if path == "/api/state":
             try:
                 return self.respond(200, self.monitor.snapshot())

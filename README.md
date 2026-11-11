@@ -7,7 +7,7 @@ into dashboard history until new activity without changing the source chat.
 
 ## Current direct build, November 11, 2026
 
-The current local repair candidate is **0.2.5 build 54**, using the direct Mac
+The current local repair candidate is **0.2.5 build 55**, using the direct Mac
 app identifier `local.agentboard.display`. This is distinct from the historical
 App Store candidate below. It is not an App Store release or a newly notarized
 distribution.
@@ -32,6 +32,10 @@ new settled reply marker and message identity; a rename cannot create a reply
 alert. A private account-scoped checkpoint preserves Reviewed state across
 restarts and catches replies that finish between checks. Existing chat cards
 keep their identities and review state.
+
+Conversation collectors retry after temporary storage or read failures. Connection
+health expires when a collector stops refreshing, and a stalled refresh cannot
+hold the dashboard request open indefinitely. Saved review state is retained.
 
 Local transcript verification follows the verified content history when files
 are replaced or reindexed. An unchanged replacement cannot turn an old reviewed

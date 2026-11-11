@@ -1,15 +1,15 @@
 {
   "version": "0.2.5",
-  "build": 54,
-  "source_manifest_sha256": "9930887cf6e80479aa2f86777a553cf5a828105c1b96b8f52d3b491304a3174c",
-  "source_files": 199,
-  "automated_tests": 603,
+  "build": 55,
+  "source_manifest_sha256": "3b9b61d572b6a1e10aca74fc15585df4deecdac37f3dacddca086f8a6c67dea6",
+  "source_files": 200,
+  "automated_tests": 613,
   "signing": "existing Developer ID; local build without new notarization",
   "executables": {
-    "Contents/MacOS/AgentBoard": "4d05f947525d76d69027ef56256d8d4957a9212dc5ecee297cf4830062194fd0",
-    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "a1c7051e7641ece1c3ea0dcd9df64d57f8e6301764fdf65f9a599b7d938e3133"
+    "Contents/MacOS/AgentBoard": "86909d2a24bb6d579a1b2622c28bf657b73969eaeb1a99ede9be5415e2d4c621",
+    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "28a9a1e400cf5aebaaa33198d67d2c758809bfab28e70b315190eda5c0b4a8a0"
   },
-  "zip_sha256": "a0548983f348a30fc6ef38cf2a7af439ce7b7f7d7899594aa4b738514255adae",
+  "zip_sha256": "6d0f6134a4c739a918204906ff0bd8b74802187a40598d59e2a9f32d567ed14a",
   "verified_on": "2026-11-11",
   "live_workflows": {
     "claude_desktop": "A real desktop reply produced one Cooking card while Claude desktop showed its Code section, then became Ready. Open reached the exact web conversation.",
@@ -18,8 +18,10 @@
     "chatgpt_desktop": "The new bounded reader verified a terminal reply from a user-created desktop test chat. A second post-install desktop action was reported but did not appear in the current account metadata; its full live workflow is unverified.",
     "review_restart": "The Claude and ChatGPT web test cards remained Reviewed after a normal app quit and reopen. Renaming the Claude test did not produce another reply alert.",
     "usage": "Both providers displayed fresh readings and whole numbers with aligned rows in the installed app.",
-    "final_build": "Build54 started with every source connected, fresh whole-number usage, saved test reviews, and no re-alert of the verified unchanged transcript.",
-    "review_recovery": "Two acknowledgments were restored only where the pre-update backup proved unchanged reviewed transcript content and unchanged owner review state. A repeat read-only audit after restart matched zero unresolved rows."
+    "final_build": "Build 55 launched with every source connected, fresh whole-number usage, the desktop-created test chat visible in Background, and the reviewed web test retained in Reviewed. Its active Codex work returned to Cooking after initial indexing.",
+    "review_recovery": "Two acknowledgments were restored only where the pre-update backup proved unchanged reviewed transcript content and unchanged owner review state. A repeat read-only audit after restart matched zero unresolved rows.",
+    "storage_recovery": "The real dashboard and collector were exercised against a disposable SQLite board. Injected storage read/write errors showed Monitor disconnected and unconfirmed source health. Removing the fault recovered the same running collector automatically and retained the reviewed event. No failure was induced in the live database.",
+    "chat_links": "Both original ChatGPT test conversations opened from their Agent Board cards and displayed the expected conversation in the browser before the update; both locations remained present after installing build 55."
   },
   "limitations": [
     "Account readers require the matching existing sign-in on this Mac and use provider interfaces that can change.",
@@ -35,7 +37,7 @@
     "chatgpt_source.py",
     "chatgpt_status.py",
     "chatgpt_reply_source.py",
-    "chatgpt_monitor.py",
     "MacApp.swift"
-  ]
+  ],
+  "automated_recovery_checks": "Local and project read/write errors, failed logging, stale heartbeats, bounded HTTP failure, and exact ChatGPT status receipt replay after failed persistence. Reviewed state and account isolation were preserved."
 }

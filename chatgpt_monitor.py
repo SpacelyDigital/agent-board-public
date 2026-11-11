@@ -144,6 +144,24 @@ class ChatGPTConversationSource:
                 "source_updated_at": updated, "source_created_at": created}
 
     def scan(self, store, now):
+        transaction = {"pending": dict(self.pending), "processed": dict(self.processed),
+                       "account": self.account_identity, "committed": False}
+        try:
+            return self._scan(store, now, transaction)
+        except Exception:
+            if not transaction["committed"]:
+                # A receipt is consumed only after its lifecycle write succeeds.
+                # Retry the same fresh observation after a transient DB failure,
+                # while never restoring work from a different signed-in account.
+                same_account = transaction["account"] == self.account_identity
+                self.pending = transaction["pending"] if same_account else {}
+                self.processed = transaction["processed"] if same_account else {}
+            self.available = False
+            self.status_available = False
+            self.cooking = {}
+            raise
+
+    def _scan(self, store, now, transaction):
         if self._checkpoint_error:
             self.available = False
             self.cooking = {}
@@ -309,6 +327,7 @@ class ChatGPTConversationSource:
                     records[uuid] = {"reply_id": reply["reply_id"], "created_at": reply["created_at"],
                                      "updated_at": reply["updated_at"], "pending_started_at": None}
         store.apply(observations, now)
+        transaction["committed"] = True
         self._checkpoint_unavailable = False
         if self._marker_mode and self._baseline is not None:
             for uuid, record in records.items():

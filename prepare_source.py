@@ -51,6 +51,7 @@ TESTS = (
     "test_claude_desktop_chats.py", "ClaudeChatStatusProof.swift", "ChatGPTChatStatusProof.swift",
     "test_desktop_identity_migration.py", "test_chatgpt_catalog.py", "test_chatgpt_status.py", "test_chatgpt_monitor.py",
     "test_claude_chat_source.py", "test_claude_chat_monitor.py", "test_chatgpt_reply_source.py",
+    "test_collector_recovery.py",
 )
 SENSITIVE = re.compile(
     r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
