@@ -10,7 +10,7 @@
   const providerNames = { codex: "Codex", claude: "Claude", chatgpt: "ChatGPT" };
   const priority = { cooking: 0, needs_you: 1, ready: 1, disconnected: 2 };
   const elements = Object.fromEntries([
-    "connection", "connection-text", "summary", "monitor-message", "action-message", "conversation-updates", "loading", "empty", "sample-controls", "usage",
+    "connection", "connection-text", "summary", "monitor-message", "action-message", "conversation-updates", "loading", "empty", "empty-samples", "sample-controls", "usage",
     "attention-section", "attention-list", "attention-count", "cooking-section", "cooking-list", "cooking-count",
     "history", "history-count", "history-list", "sources", "last-sync", "settings-toggle", "sound-toggle", "sound-select", "sound-preview", "fullscreen-toggle",
     "board-tab", "background-tab", "board-panel", "background-panel", "background-list", "background-empty", "background-count",
@@ -450,7 +450,7 @@
         setText(resetText, reset ? resetCountdown(reset) : hasReading ? "Reset time unavailable." : "");
         resetText.title = reset ? `Scheduled reset: ${localTimestamp(reset)}` : provider?.error || "";
       }
-      item.element.title = [localReading ? "This is a cached provider reading from local session data." : "", provider?.error, updated ? `Last usage reading: ${localTimestamp(updated)}` : ""].filter(Boolean).join("\n");
+      item.element.title = [localReading && hasReading ? "This is a cached provider reading from local session data." : "", provider?.error, updated ? `Last usage reading: ${localTimestamp(updated)}` : ""].filter(Boolean).join("\n");
     }
     for (const {id, element} of creditRows) {
       const provider = state?.usage?.find(source => source.id === id);
@@ -515,7 +515,7 @@
     setText(elements["connection-text"], connected ? sampleMode ? "Sample board" : "Monitoring locally" : attemptedConnection ? "Monitor disconnected" : "Connecting");
     elements["sample-controls"].hidden = !sampleMode;
     elements["sample-controls"].querySelectorAll("button").forEach(button => { button.disabled = !connected || samplePending; });
-    elements.usage.setAttribute("aria-label", sampleMode ? "Sample usage" : "Account usage");
+    elements.usage.setAttribute("aria-label", sampleMode ? "Sample usage" : state?.store_profile === true ? "Local usage" : "Account usage");
     elements.summary.classList.toggle("stale", !connected);
     const monitorNotices = [];
     if (typeof state?.recovery_notice === "string" && state.recovery_notice.trim()) monitorNotices.push(state.recovery_notice.slice(0, 2000));
@@ -537,6 +537,7 @@
     const history = [...(state.history || [])].sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0));
     elements.empty.hidden = !!sessions.length;
     const noSources = !(state.sources || []).some(source => source.available === true);
+    elements["empty-samples"].hidden = !(nativeBoard && connected && noSources && !sampleMode && state.store_profile === true);
     setText(elements.empty.querySelector("h2"), !connected ? "Waiting for your monitor." : noSources ? "No sources are connected." : "Your board is clear.");
     setText(elements.empty.querySelector("p"), !connected ? "Reconnect the local monitor to confirm conversation states." : noSources ? "Check the source connections below before waiting for new activity." : "New activity in Codex or Claude will appear here.");
     for (const status of Object.keys(priority)) {
@@ -1007,6 +1008,11 @@
   });
 
   elements["settings-toggle"].addEventListener("click", () => nativeBoard?.postMessage("settings"));
+  elements["empty-samples"].addEventListener("click", () => {
+    if (nativeBoard && connected && state?.store_profile === true && state?.sample_mode !== true && !elements["empty-samples"].hidden) {
+      nativeBoard.postMessage("sampleBoard");
+    }
+  });
 
   function renderFullscreenButton(active) {
     const button = elements["fullscreen-toggle"];

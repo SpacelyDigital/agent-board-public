@@ -123,7 +123,7 @@ class StoreSigningPolicyTests(unittest.TestCase):
     def test_distribution_requires_an_explicit_implemented_store_support_strategy(self):
         flags = ["--distribution", "--app-signing-identity", "Apple Distribution: Example",
                  "--installer-signing-identity", "3rd Party Mac Developer Installer: Example",
-                 "--team-id", self.team, "--provisioning-profile", "unread-file"]
+                 "--team-id", self.team, "--provisioning-profile", "unread-file", "--uses-non-exempt-encryption", "no"]
         with patch("subprocess.run", side_effect=AssertionError("No identity/profile reads during argument parsing")):
             with patch("sys.stderr", new_callable=io.StringIO) as stderr, self.assertRaises(SystemExit):
                 self.arguments(*flags)
@@ -139,7 +139,7 @@ class StoreSigningPolicyTests(unittest.TestCase):
     def test_profile_free_distribution_is_explicit_and_reads_no_profiles_or_accounts(self):
         flags = ["--distribution", "--app-signing-identity", "Apple Distribution: Example",
                  "--installer-signing-identity", "3rd Party Mac Developer Installer: Example",
-                 "--team-id", self.team, "--support-strategy", "hidden"]
+                 "--team-id", self.team, "--support-strategy", "hidden", "--uses-non-exempt-encryption", "no"]
         with patch("subprocess.run", side_effect=AssertionError("No profile or identity reads")):
             with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
                 self.arguments(*flags)
@@ -176,7 +176,8 @@ class StoreSigningPolicyTests(unittest.TestCase):
                     validate_profile_free_capabilities()
 
     def test_profile_free_build_rejects_unreviewed_capabilities_before_compiling_or_signing(self):
-        config = AppConfiguration(self.identifier, "0.2.5", "14", signing_channel="store-distribution", team_id=self.team)
+        config = AppConfiguration(self.identifier, "0.2.5", "14", signing_channel="store-distribution", team_id=self.team,
+                                  uses_non_exempt_encryption=False)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "must-not-be-created"
             with patch("build_support.validate_profile_free_capabilities", side_effect=ValueError("fixture capability rejection")), \
@@ -184,6 +185,31 @@ class StoreSigningPolicyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "fixture capability rejection"):
                     build_app("Apple Distribution: Example", sandboxed=True, build_root=output, configuration=config)
             self.assertFalse(output.exists())
+
+    def test_encryption_answer_is_explicit_and_missing_answer_stops_distribution(self):
+        config = AppConfiguration(self.identifier, "0.2.5", "62", signing_channel="store-distribution", team_id=self.team)
+        with patch("subprocess.run", side_effect=AssertionError("No build may start")):
+            with self.assertRaisesRegex(ValueError, "owner-approved encryption answer"):
+                build_app(configuration=config, sandboxed=True)
+        from dataclasses import replace
+        self.assertEqual(replace(config, uses_non_exempt_encryption=False).encryption_metadata(),
+                         {"ITSAppUsesNonExemptEncryption": False})
+        self.assertEqual(replace(config, uses_non_exempt_encryption=True, encryption_compliance_code="TEST-CODE").encryption_metadata(),
+                         {"ITSAppUsesNonExemptEncryption": True, "ITSEncryptionExportComplianceCode": "TEST-CODE"})
+        with self.assertRaises(ValueError):
+            replace(config, uses_non_exempt_encryption=False, encryption_compliance_code="TEST-CODE")
+        self.assertEqual(AppConfiguration(self.identifier, "0.2.5", "62", signing_channel="store-preview").encryption_metadata(), {})
+
+    def test_store_fixture_binary_marker_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Fixture.app"
+            executable = app / "Contents/MacOS/AgentBoard"
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"binary\x00--board-url\x00")
+            with self.assertRaisesRegex(ValueError, "fixture mode"):
+                build_store.validate_store_fixture_exclusion(app)
+            executable.write_bytes(b"binary without fixture support")
+            build_store.validate_store_fixture_exclusion(app)
 
     def test_output_cannot_replace_checkpoints_escape_or_follow_symlinks(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -499,7 +525,7 @@ class StoreArtifactTests(unittest.TestCase):
             for contents in (app / "Contents", app / HELPER / "Contents"):
                 for folder in ("Resources", "Frameworks"):
                     for relative in ("static/about/ko-fi.svg", "static/about/ko-fi.png", "static/about/store.html",
-                                     "static/icons/claude.svg", "static/icons/codex.svg"):
+                                     "static/icons/claude.svg", "static/icons/codex.svg", "integrations"):
                         with self.subTest(bundle=contents.relative_to(app), folder=folder, asset=relative):
                             asset = contents / folder / relative
                             asset.parent.mkdir(parents=True, exist_ok=True)

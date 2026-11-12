@@ -23,10 +23,10 @@ TOP_LEVEL = (
     "assets/AgentBoard.icns", "tools/build_icon.swift", "tools/review_samples.py", "static/about/store.html",
     "tools/generate_alert_sounds.py", "static/sounds/README.md",
     "store-listing/README.md", "store-listing/APP_STORE_METADATA.md", "store-listing/PRIVACY_ANSWERS.md",
-    "store-listing/REVIEW_NOTES.md", "store-listing/REVIEW_SAMPLES.md", "store-listing/site/privacy.html", "store-listing/site/support.html", "store-listing/site/site.css",
+    "store-listing/REVIEW_NOTES.md", "store-listing/REVIEW_SAMPLES.md", "store-listing/site/privacy.html", "store-listing/site/direct-privacy.html", "store-listing/site/support.html", "store-listing/site/site.css",
 )
 TESTS = (
-    "test_board.py", "test_chat_links.py", "test_claude.py", "test_claude_project.py", "test_project_fresh_status.py",
+    "test_board.py", "test_board_write_budget.py", "collector_disk_budget.py", "test_chat_links.py", "test_claude.py", "test_claude_project.py", "test_project_fresh_status.py",
     "test_codex.py", "test_usage.py", "test_display_access.py", "fixture_control.py", "native_runtime_smoke.py",
     "test_adapter_redteam.py", "test_http_security.py", "test_store_redteam.py",
     "reader_lifetime_smoke.py", "privacy_network_smoke.py", "stress_browser.py", "stress_browser.cjs",

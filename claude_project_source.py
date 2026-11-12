@@ -30,6 +30,7 @@ from privacy_network import ProviderRequestError, read_provider_json
 ORIGIN = "https://api.anthropic.com"
 MAX_RESPONSE = 4 * 1024 * 1024
 POLL_SECONDS = 15
+COMPLETION_CACHE_SECONDS = 60
 FETCH_TIMEOUT = 30
 _CHANNEL = re.compile(r"^chan_[A-Za-z0-9_]{6,120}$")
 _SESSION = re.compile(r"^cse_[A-Za-z0-9_]{6,120}$")
@@ -147,6 +148,18 @@ def _event_id(ident: str, status: str, values: list[Any]) -> str:
     return "claude:" + ident + ":" + status + ":" + digest
 
 
+def _ready_reply_aliases(ident: str, root: dict, reply_id: str) -> list[str]:
+    """Recognize old event encodings of this independently verified reply."""
+    revision = [root["id"], root.get("last_reply_at"), root.get("reply_count")]
+    # The old idle path included the immutable reply ID; the old resolved
+    # path instead encoded the aggregate state and optional live flags.
+    aliases = [_event_id(ident, "ready", [*revision, "idle", False, waiting, reply_id])
+               for waiting in (False, None)]
+    aliases.extend(_event_id(ident, "ready", [*revision, "resolved", working, waiting])
+                   for working in (False, None) for waiting in (False, None))
+    return aliases
+
+
 def _permission_identity(details: list) -> list[str]:
     """A permission request is a new event even if the status stays blocked."""
     identities = []
@@ -242,7 +255,7 @@ def _thread_preview(client: _Client, channel_id: str, root: dict, status: str) -
 
 def _idle_reply_revision(root: dict) -> list | None:
     """Only an explicitly idle thread without an outstanding prompt can finish."""
-    if (root.get("thread_status") != "idle" or root.get("thread_any_session_working") is not False
+    if (root.get("thread_status") not in ("idle", "resolved") or root.get("thread_any_session_working") is not False
             or root.get("thread_waits_on_live_prompt") is True):
         return None
     decisions = root.get("open_decisions")
@@ -256,10 +269,10 @@ def _idle_reply_revision(root: dict) -> list | None:
 
 
 def _idle_thread_completion(client: _Client, channel_id: str, root: dict) -> dict:
-    """Confirm the latest same-thread reply, with a stable idle root before/after.
+    """Confirm the latest same-thread reply, with a settled root before/after.
 
-    An idle thread can remain open after an assistant finishes. Child-session
-    outcomes do not establish that the thread has replied to its latest input.
+    Idle and resolved describe the same reply at different aggregate states.
+    Child outcomes do not establish that the thread replied to its latest input.
     """
     revision = _idle_reply_revision(root)
     if revision is None:
@@ -431,16 +444,25 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
             old = previous.get(task_id, {})
             revision = _idle_reply_revision(root)
             if revision is not None and (task_id in tracked_ids or unread or updated >= cutoff):
-                if old.get("_idle_reply_revision") == revision and old.get("_completion_reply_id"):
+                verified_at = old.get("_completion_verified_at")
+                fresh_proof = (isinstance(verified_at, (int, float)) and not isinstance(verified_at, bool)
+                               and math.isfinite(verified_at) and 0 <= now - verified_at < COMPLETION_CACHE_SECONDS)
+                if fresh_proof and old.get("_idle_reply_revision") == revision and old.get("_completion_reply_id"):
                     completion = {key: old[key] for key in ("preview", "preview_kind", "preview_at",
-                                                           "_idle_reply_revision", "_completion_reply_id") if key in old}
+                                                           "_idle_reply_revision", "_completion_reply_id",
+                                                           "_completion_verified_at") if key in old}
                 else:
                     try:
                         completion = _idle_thread_completion(client, channel_id, root)
+                        if completion:
+                            completion["_completion_verified_at"] = now
                     except ProjectUnavailable:
                         pass
                 if completion:
                     status, detail = "ready", "Claude finished responding in this project thread."
+            unverified_resolved = status == "ready" and not completion
+            if unverified_resolved:
+                status, detail = "disconnected", "This project thread is resolved; its latest reply has not been verified."
             discovery = status in ("cooking", "needs_you") or (status == "ready" and
                         (unread or (bool(completion) and updated >= cutoff)))
             # The board begins tracking project tasks at activation. An older
@@ -465,15 +487,25 @@ def _collect(now: float, cutoff: float, tracked_ids: set[str], previous: dict[st
                             root.get("thread_status"), root.get("thread_any_session_working"),
                             root.get("thread_waits_on_live_prompt")]
             if completion:
-                event_values.append(completion["_completion_reply_id"])
+                # The completed assistant message owns the Ready identity.
+                # Aggregate flags, reply-count formatting, and later resolving
+                # or reopening the same thread cannot manufacture another reply.
+                event_values = ["assistant_reply", completion["_completion_reply_id"]]
             token = _event_id(task_id, status, event_values)
             row = _base(channel, task_id, status, detail, updated, token, title + " · " + caption, thread_id)
             row.update(pending_review=status == "ready" and unread,
                        discovery_eligible=discovery or older_thread)
+            if unverified_resolved:
+                row["metadata_only"] = True
             if older_thread:
                 row["background_reason"] = "older_project_thread"
             if completion:
                 row.update(completion)
+                row.update(project_reply_id=completion["_completion_reply_id"],
+                           project_reply_verified=True,
+                           _project_reply_revision=completion["_idle_reply_revision"],
+                           _project_event_aliases=_ready_reply_aliases(task_id, root, completion["_completion_reply_id"]))
+                row["_project_id_event_aliases"] = row["_project_event_aliases"][:2]
             elif old.get("event_id") == token:
                 row.update({k: old[k] for k in ("preview", "preview_kind", "preview_at") if k in old})
             elif status in ("ready", "needs_you"):
@@ -571,7 +603,8 @@ class ClaudeProjectSource:
         if elapsed >= POLL_SECONDS or math.isclose(elapsed, POLL_SECONDS, rel_tol=0, abs_tol=0.05):
             previous = {row["id"]: {k: row[k] for k in ("event_id", "preview", "preview_kind", "preview_at",
                                                        "_overlap_activity_at", "_coordinator_bound_to_thread",
-                                                       "_idle_reply_revision", "_completion_reply_id") if k in row}
+                                                       "_idle_reply_revision", "_completion_reply_id",
+                                                       "_completion_verified_at") if k in row}
                         for row in self._observations}
             try:
                 self._observations, self._health = _fetch(now, cutoff, self.tracked_ids, previous)

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from board_store import BoardStore
 from claude_project_source import (ClaudeProjectSource, ProjectUnavailable, _Client,
-                                   _collect, _session_token, _thread_preview, _idle_thread_completion)
+                                   _collect, _session_token, _thread_preview, _idle_thread_completion, _event_id)
 
 
 CHANNEL = "chan_12345678"
@@ -71,9 +71,9 @@ class ClaudeProjectTests(unittest.TestCase):
         self.assertEqual(rows[TASK]["status"], "needs_you")
 
     def idle_reply_client(self, **fields):
-        task = root(thread_status="idle", open_decisions=[], channel_id=CHANNEL,
+        task = root(**(dict(thread_status="idle", open_decisions=[], channel_id=CHANNEL,
                     thread_root_id=THREAD, has_unread=False,
-                    bound_sessions=[{"id": "cse_child123456", "status_bucket": "review_ready"}], **fields)
+                    bound_sessions=[{"id": "cse_child123456", "status_bucket": "review_ready"}]) | fields))
         message = reply(channel_id=CHANNEL, thread_root_id=THREAD, author_session_id="cse_child123456",
                         body="The requested check is complete.")
         return FakeClient(thread=task, messages=[message])
@@ -111,6 +111,343 @@ class ClaudeProjectTests(unittest.TestCase):
             restarted.apply(fresh.values(), NOW + 3)
             self.assertNotEqual(row["event_id"], fresh[TASK]["event_id"])
             self.assertTrue(restarted.get(row["key"])["notification_eligible"])
+
+    @staticmethod
+    def legacy_ready(row, client, status="idle"):
+        old = {key: value for key, value in row.items()
+               if not key.startswith("_project_") and key not in ("project_reply_id", "project_reply_verified")}
+        values = [THREAD, client.thread["last_reply_at"], client.thread["reply_count"], status,
+                  False, client.thread.get("thread_waits_on_live_prompt")]
+        if status == "idle":
+            values.append(client.messages[0]["id"])
+        old["event_id"] = _event_id(TASK, "ready", values)
+        return old
+
+    def test_verified_reply_identity_survives_idle_resolved_optional_flags_and_count_format(self):
+        client = self.idle_reply_client()
+        initial, _ = self.collect(client)
+        for status, waiting, count in (("resolved", None, 5), ("idle", False, "5"), ("resolved", False, "5")):
+            client.thread.update(thread_status=status, thread_waits_on_live_prompt=waiting, reply_count=count)
+            for previous in ({}, initial):
+                with self.subTest(status=status, waiting=waiting, count=count, warm=bool(previous)):
+                    current, _ = self.collect(client, (TASK,), previous)
+                    self.assertEqual(current[TASK]["status"], "ready")
+                    self.assertEqual(current[TASK]["event_id"], initial[TASK]["event_id"])
+
+    def test_legacy_id_ack_survives_resolved_and_work_cycles_with_restart(self):
+        for preference in ("reviewed", "snoozed"):
+            for transition in ("resolved", "working", "resolved_missing_preview"):
+                with self.subTest(preference=preference, transition=transition), tempfile.TemporaryDirectory() as folder:
+                    client = self.idle_reply_client()
+                    first, _ = self.collect(client)
+                    legacy = self.legacy_ready(first[TASK], client)
+                    with patch("board_store.time.time", return_value=NOW - 3600):
+                        store = BoardStore(Path(folder) / "board.sqlite3")
+                    store.apply([legacy], NOW)
+                    original = store.get("claude:" + TASK)
+                    if preference == "reviewed":
+                        with patch("board_store.time.time", return_value=NOW):
+                            store.review(original["key"], original["event_id"])
+                    else:
+                        store.snooze(original["key"], original["event_id"], now=NOW)
+                    if transition.startswith("resolved"):
+                        changed = self.legacy_ready(first[TASK], client, "resolved")
+                        if transition.endswith("missing_preview"):
+                            for key in ("preview", "preview_kind", "preview_at"):
+                                changed.pop(key, None)
+                    else:
+                        client.thread.update(thread_status="working", thread_any_session_working=True)
+                        working, _ = self.collect(client, (TASK,))
+                        changed = working[TASK]
+                    store.apply([changed], NOW + 1)
+                    store.close()
+                    store = BoardStore(Path(folder) / "board.sqlite3")
+                    client.thread.update(thread_status="resolved", thread_any_session_working=False)
+                    completed, _ = self.collect(client, (TASK,))
+                    store.apply([completed[TASK]], NOW + 2)
+                    recovered = store.get(original["key"])
+                    self.assertEqual(recovered["event_id"], original["event_id"])
+                    raw_extra = json.loads(store._db.execute("SELECT extra FROM sessions WHERE key=?", (original["key"],)).fetchone()[0])
+                    self.assertEqual(raw_extra["project_reply_event"], original["event_id"])
+                    self.assertEqual(recovered["project_reply_event"], original["event_id"])
+                    if preference == "reviewed":
+                        self.assertEqual(recovered["reviewed_event"], original["event_id"])
+                    else:
+                        self.assertEqual(recovered["snoozed_until"], NOW + 600)
+                    with patch("board_store.time.time", return_value=NOW + 3):
+                        self.assertFalse(store.get(original["key"])["notification_eligible"])
+                    # Once migrated, the exact reply/event binding must survive
+                    # another genuine work state and process restart.
+                    client.thread.update(thread_status="working", thread_any_session_working=True)
+                    working, _ = self.collect(client, (TASK,))
+                    store.apply([working[TASK]], NOW + 3)
+                    self.assertEqual(store.get(original["key"])["project_reply_event"], original["event_id"])
+                    store.close()
+                    store = BoardStore(Path(folder) / "board.sqlite3")
+                    # The root can change its counter while the same immutable
+                    # assistant reply remains latest. Legacy aliases no longer
+                    # match; only the persisted verified binding can retain it.
+                    client.thread.update(thread_status="idle", thread_any_session_working=False, reply_count="6")
+                    again, _ = self.collect(client, (TASK,))
+                    store.apply([again[TASK]], NOW + 4)
+                    self.assertEqual(store.get(original["key"])["event_id"], original["event_id"])
+                    self.assertEqual(store.get(original["key"])["project_reply_event"], original["event_id"])
+                    state = store.snapshot()
+                    projected = next(row for group in ("sessions", "history", "background") for row in state[group]
+                                     if row["key"] == original["key"])
+                    self.assertEqual(projected["event_id"], original["event_id"])
+                    self.assertEqual(projected["project_reply_event"], original["event_id"])
+                    store.close()
+
+    def test_new_assistant_id_clears_ack_even_when_root_count_time_and_text_repeat(self):
+        client = self.idle_reply_client()
+        first, _ = self.collect(client)
+        with tempfile.TemporaryDirectory() as folder:
+            with patch("board_store.time.time", return_value=NOW - 3600):
+                store = BoardStore(Path(folder) / "board.sqlite3")
+            store.apply([first[TASK]], NOW)
+            before = store.get("claude:" + TASK)
+            store.review(before["key"], before["event_id"])
+            store.snooze(before["key"], before["event_id"], now=NOW)
+            client.messages[0]["id"] = "cmsg_different_reply123"
+            client.thread["thread_status"] = "resolved"
+            # A cold metadata revision re-read gives positive new message-ID
+            # evidence even if the provider reused its other revision fields.
+            fresh, _ = self.collect(client, (TASK,))
+            # Source-controlled metadata cannot forge the board's prior reply
+            # binding and suppress this different assistant message.
+            fresh[TASK]["project_reply_event"] = before["event_id"]
+            self.assertNotEqual(fresh[TASK]["event_id"], first[TASK]["event_id"])
+            store.apply([fresh[TASK]], NOW + 1)
+            after = store.get(before["key"])
+            self.assertNotEqual(after["event_id"], before["event_id"])
+            self.assertEqual(after["project_reply_event"], after["event_id"])
+            self.assertEqual(after["snoozed_until"], 0)
+            self.assertTrue(after["notification_eligible"])
+            store.close()
+
+    def test_unchanged_verified_project_proofs_do_not_write_or_grow_wal_before_heartbeat(self):
+        client = self.idle_reply_client(thread_status="resolved")
+        rows, _ = self.collect(client)
+        with tempfile.TemporaryDirectory() as folder:
+            with patch("board_store.time.time", return_value=NOW - 3600):
+                store = BoardStore(Path(folder) / "board.sqlite3")
+            store.apply([rows[TASK]], NOW)
+            original = store.get("claude:" + TASK)
+            initial_changes = store._db.total_changes
+            wal = Path(str(store.path) + "-wal")
+            initial_wal = wal.stat().st_size
+            for step in range(1, 60):
+                observed = dict(rows[TASK], _completion_verified_at=NOW + step,
+                                project_status_observed_at=NOW + step)
+                store.apply([observed], NOW + step)
+            self.assertEqual(store._db.total_changes, initial_changes)
+            self.assertEqual(wal.stat().st_size, initial_wal)
+            self.assertEqual(store.get(original["key"])["observed_at"], NOW + 59)
+            store.apply([dict(rows[TASK], _completion_verified_at=NOW + 60)], NOW + 60)
+            self.assertEqual(store._db.total_changes, initial_changes + 1)
+            extra = json.loads(store._db.execute("SELECT extra FROM sessions WHERE key=?", (original["key"],)).fetchone()[0])
+            self.assertEqual(extra["project_reply_event"], original["event_id"])
+            self.assertEqual(extra["project_reply_id"], rows[TASK]["project_reply_id"])
+            for key in ("_completion_verified_at", "project_status_observed_at", "_project_reply_revision",
+                        "_project_event_aliases", "_project_id_event_aliases"):
+                self.assertNotIn(key, extra)
+            store.close()
+
+    def test_unchanged_settled_metadata_rechecks_reply_id_after_original_proof_expires(self):
+        client = self.idle_reply_client(thread_status="resolved")
+        original, _ = self.collect(client)
+        self.assertEqual(original[TASK]["_completion_verified_at"], NOW)
+        client.messages[0]["id"] = "cmsg_different_reply123"
+        previous = original
+        calls = len([path for path in client.calls if "/threads/" in path])
+        for elapsed in (15, 30, 45, 59.99):
+            rows, _ = _collect(NOW + elapsed, NOW - 3600, {TASK}, previous, client)
+            previous = {row["id"]: row for row in rows}
+            self.assertEqual(previous[TASK]["event_id"], original[TASK]["event_id"])
+            self.assertEqual(previous[TASK]["_completion_verified_at"], NOW)
+            self.assertEqual(len([path for path in client.calls if "/threads/" in path]), calls)
+        rows, _ = _collect(NOW + 60, NOW - 3600, {TASK}, previous, client)
+        refreshed = {row["id"]: row for row in rows}
+        self.assertNotEqual(refreshed[TASK]["event_id"], original[TASK]["event_id"])
+        self.assertEqual(refreshed[TASK]["_completion_verified_at"], NOW + 60)
+        self.assertGreater(len([path for path in client.calls if "/threads/" in path]), calls)
+
+    def test_failed_expired_or_future_proof_cannot_renew_cached_completion(self):
+        for status in ("idle", "resolved"):
+            with self.subTest(status=status):
+                client = self.idle_reply_client(thread_status=status)
+                initial, _ = self.collect(client)
+                complete_messages = list(client.messages)
+                client.messages.clear()
+                rows, _ = _collect(NOW + 60, NOW - 3600, {TASK}, initial, client)
+                unavailable = {row["id"]: row for row in rows}
+                self.assertNotEqual(unavailable[TASK]["status"], "ready")
+                self.assertNotIn("_completion_verified_at", unavailable[TASK])
+                self.assertEqual(initial[TASK]["_completion_verified_at"], NOW)
+                client.messages = complete_messages
+                client.messages[0]["id"] = "cmsg_rechecked123456"
+                rows, _ = _collect(NOW + 75, NOW - 3600, {TASK}, unavailable, client)
+                recovered = {row["id"]: row for row in rows}
+                self.assertEqual(recovered[TASK]["_completion_verified_at"], NOW + 75)
+                self.assertNotEqual(recovered[TASK]["event_id"], initial[TASK]["event_id"])
+                initial[TASK]["_completion_verified_at"] = NOW + 1000
+                rows, _ = _collect(NOW + 76, NOW - 3600, {TASK}, initial, client)
+                future_rejected = {row["id"]: row for row in rows}
+                self.assertEqual(future_rejected[TASK]["_completion_verified_at"], NOW + 76)
+                self.assertEqual(future_rejected[TASK]["event_id"], recovered[TASK]["event_id"])
+
+    def test_unverified_resolved_metadata_cannot_alert_or_replace_verified_reply(self):
+        client = self.idle_reply_client()
+        first, _ = self.collect(client)
+        with tempfile.TemporaryDirectory() as folder:
+            with patch("board_store.time.time", return_value=NOW - 3600):
+                store = BoardStore(Path(folder) / "board.sqlite3")
+            store.apply([first[TASK]], NOW)
+            before = store.get("claude:" + TASK)
+            store.review(before["key"], before["event_id"])
+            client.thread["thread_status"] = "resolved"
+            client.messages.clear()
+            unknown, _ = self.collect(client, (TASK,))
+            self.assertEqual(unknown[TASK]["status"], "disconnected")
+            self.assertTrue(unknown[TASK]["metadata_only"])
+            store.apply([unknown[TASK]], NOW + 1)
+            after = store.get(before["key"])
+            self.assertEqual(after["event_id"], before["event_id"])
+            self.assertEqual(after["reviewed_event"], before["event_id"])
+            self.assertFalse(after["notification_eligible"])
+            store.close()
+
+    def test_legacy_resolved_review_baselines_once_including_build66_intermediate_binding(self):
+        for intermediate in ("legacy", "build66", "working"):
+            with self.subTest(intermediate=intermediate), tempfile.TemporaryDirectory() as folder:
+                client = self.idle_reply_client(thread_status="resolved")
+                first, _ = self.collect(client)
+                legacy = self.legacy_ready(first[TASK], client, "resolved")
+                path = Path(folder) / "board.sqlite3"
+                with patch("board_store.time.time", return_value=NOW - 3600):
+                    store = BoardStore(path)
+                store.apply([legacy], NOW)
+                before = store.get("claude:" + TASK)
+                with patch("board_store.time.time", return_value=NOW):
+                    store.review(before["key"], before["event_id"])
+                if intermediate == "build66":
+                    # Exact persisted66 shape: a canonical ID binding was
+                    # written, while the old resolved review marker remained.
+                    normalized = BoardStore.normalize(first[TASK], NOW + 1)
+                    extra = json.loads(normalized["extra"])
+                    extra["project_reply_event"] = normalized["event_id"]
+                    with store.connect() as db:
+                        db.execute("UPDATE sessions SET event_id=?,extra=? WHERE key=?",
+                                   (normalized["event_id"], json.dumps(extra), before["key"]))
+                elif intermediate == "working":
+                    client.thread.update(thread_status="working", thread_any_session_working=True)
+                    working, _ = self.collect(client, (TASK,))
+                    store.apply([working[TASK]], NOW + 1)
+                store.close()
+                store = BoardStore(path)
+                client.thread.update(thread_status="resolved", thread_any_session_working=False)
+                settled, _ = self.collect(client, (TASK,))
+                store.apply([settled[TASK]], NOW + 2)
+                recovered = store.get(before["key"])
+                self.assertEqual(recovered["event_id"], before["event_id"])
+                self.assertEqual(recovered["reviewed_event"], before["event_id"])
+                self.assertEqual(recovered["reviewed_at"], NOW)
+                self.assertFalse(recovered["notification_eligible"])
+                for record in (recovered, json.loads(store._db.execute("SELECT extra FROM sessions WHERE key=?", (before["key"],)).fetchone()[0])):
+                    self.assertEqual(record["project_reply_event"], before["event_id"])
+                    self.assertEqual(record["project_reply_identity_version"], 1)
+                    self.assertEqual(record["project_reply_baseline"], "legacy_resolved_review")
+                client.thread.update(thread_status="working", thread_any_session_working=True)
+                working, _ = self.collect(client, (TASK,))
+                store.apply([working[TASK]], NOW + 3)
+                self.assertEqual(store.get(before["key"])["project_reply_identity_version"], 1)
+                store.close()
+                store = BoardStore(path)
+                client.thread.update(thread_status="resolved", thread_any_session_working=False)
+                settled, _ = self.collect(client, (TASK,))
+                store.apply([settled[TASK]], NOW + 4)
+                self.assertEqual(store.snapshot()["history"][0]["event_id"], before["event_id"])
+                self.assertEqual(store.snapshot()["history"][0]["project_reply_identity_version"], 1)
+                # Same time/count/text, but an actually different verified ID.
+                # Repeated polls must not run the upgrade baseline again.
+                client.messages[0]["id"] = "cmsg_different_after_baseline"
+                for elapsed in (5, 6, 7):
+                    newer, _ = self.collect(client, (TASK,))
+                    newer[TASK]["project_reply_identity_version"] = 0
+                    newer[TASK]["project_reply_baseline"] = "legacy_resolved_review"
+                    store.apply([newer[TASK]], NOW + elapsed)
+                    current = store.get(before["key"])
+                    self.assertNotEqual(current["event_id"], before["event_id"])
+                    self.assertTrue(current["notification_eligible"])
+                    self.assertEqual(current["project_reply_identity_version"], 1)
+                    self.assertNotIn("project_reply_baseline", current)
+                    store.close()
+                    store = BoardStore(path)
+                store.close()
+
+    def test_legacy_resolved_baseline_rejects_post_ack_reply_restore_and_wrong_revision(self):
+        for change in ("post_ack_reply", "restored", "revision", "snoozed_only"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as folder:
+                client = self.idle_reply_client(thread_status="resolved")
+                first, _ = self.collect(client)
+                legacy = self.legacy_ready(first[TASK], client, "resolved")
+                with patch("board_store.time.time", return_value=NOW - 3600):
+                    store = BoardStore(Path(folder) / "board.sqlite3")
+                store.apply([legacy], NOW)
+                before = store.get("claude:" + TASK)
+                if change == "snoozed_only":
+                    store.snooze(before["key"], before["event_id"], now=NOW)
+                else:
+                    with patch("board_store.time.time", return_value=NOW - 20 if change == "post_ack_reply" else NOW):
+                        store.review(before["key"], before["event_id"])
+                if change == "restored":
+                    store.restore(before["key"])
+                elif change == "revision":
+                    client.thread["reply_count"] = "6"
+                current, _ = self.collect(client, (TASK,))
+                store.apply([current[TASK]], NOW + 1)
+                after = store.get(before["key"])
+                self.assertNotEqual(after["event_id"], before["event_id"])
+                self.assertNotIn("project_reply_baseline", after)
+                self.assertTrue(after["notification_eligible"])
+                if change == "snoozed_only":
+                    self.assertIsNone(after["reviewed_event"])
+                store.close()
+
+    def test_alias_migration_rejects_wrong_scope_revision_or_message_and_respects_restore(self):
+        for change in ("unverified", "thread", "channel", "timestamp", "message", "aliases", "restored"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as folder:
+                client = self.idle_reply_client()
+                first, _ = self.collect(client)
+                legacy = self.legacy_ready(first[TASK], client)
+                with patch("board_store.time.time", return_value=NOW - 3600):
+                    store = BoardStore(Path(folder) / "board.sqlite3")
+                store.apply([legacy], NOW)
+                before = store.get("claude:" + TASK)
+                store.review(before["key"], before["event_id"])
+                # Reproduce an old aggregate-only event replacing that ID.
+                store.apply([self.legacy_ready(first[TASK], client, "resolved")], NOW + 1)
+                current = dict(first[TASK])
+                if change == "unverified":
+                    current["project_reply_verified"] = False
+                elif change == "thread":
+                    current["project_thread_id"] = "cmsg_otherthread123"
+                elif change == "channel":
+                    current["project_channel_id"] = "chan_other123456"
+                elif change == "timestamp":
+                    current["_project_reply_revision"] = [THREAD, NOW + 1, "5"]
+                elif change == "message":
+                    current["project_reply_id"] = current["_completion_reply_id"] = "cmsg_different123"
+                elif change == "aliases":
+                    current["_project_id_event_aliases"] = current["_project_event_aliases"][2:4]
+                else:
+                    store.restore(before["key"])
+                store.apply([current], NOW + 2)
+                after = store.get(before["key"])
+                self.assertNotEqual(after["event_id"], before["event_id"])
+                self.assertEqual(after["reviewed_event"], None if change == "restored" else before["event_id"])
+                store.close()
 
     def test_new_user_input_never_reuses_an_older_idle_completion(self):
         client = self.idle_reply_client()
@@ -267,9 +604,9 @@ class ClaudeProjectTests(unittest.TestCase):
         self.assertEqual(rows[TASK]["status"], "cooking")
 
     def test_tracked_ready_task_with_no_native_unread_still_takes_precedence(self):
-        client = FakeClient(thread=root(thread_status="resolved", has_unread=False))
+        client = self.idle_reply_client(thread_status="resolved")
         rows, _ = self.collect(client, (TASK,))
-        self.assertFalse(rows[TASK]["discovery_eligible"])
+        self.assertTrue(rows[TASK]["discovery_eligible"])
         self.assertEqual(rows[IDENT]["background_reason"], "project_overview")
 
     def test_only_old_background_or_idle_tasks_leave_coordinator_on_board(self):
@@ -463,7 +800,7 @@ class ClaudeProjectTests(unittest.TestCase):
             self.assertFalse(after["background"][0]["notification_eligible"])
 
     def test_overlap_counts_alerts_reviews_snooze_and_manual_placement_survive_restart(self):
-        client = FakeClient(thread=root(thread_status="resolved"))
+        client = self.idle_reply_client(thread_status="resolved", has_unread=True)
         rows, _ = self.collect(client)
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "board.sqlite3"
@@ -560,7 +897,7 @@ class ClaudeProjectTests(unittest.TestCase):
 
     def test_bound_worker_state_alone_cannot_overwrite_authoritative_thread_state(self):
         for thread_status, expected in (("needs_input", "needs_you"), ("idle", "disconnected"),
-                                        ("resolved", "ready"), ("unknown", "disconnected")):
+                                        ("resolved", "disconnected"), ("unknown", "disconnected")):
             with self.subTest(thread_status=thread_status):
                 rows, _ = self.collect(FakeClient(thread=root(thread_status=thread_status,
                     bound_sessions=[{"id": "cse_worker123", "status_bucket": "working"}])), (TASK,))
@@ -582,7 +919,9 @@ class ClaudeProjectTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
 
     def test_old_resolved_unread_thread_is_pending_review(self):
-        rows, _ = self.collect(FakeClient(thread=root(thread_status="resolved", last_reply_at=NOW - 100000)))
+        client = self.idle_reply_client(thread_status="resolved", last_reply_at=NOW - 100000, has_unread=True)
+        client.messages[0]["created_at"] = NOW - 100000
+        rows, _ = self.collect(client)
         self.assertEqual(rows[TASK]["status"], "ready")
         self.assertTrue(rows[TASK]["pending_review"])
         self.assertTrue(rows[TASK]["discovery_eligible"])

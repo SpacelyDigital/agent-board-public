@@ -84,6 +84,7 @@ def copy_license_notices(resources):
 
 
 def build_app(signing_identity=None, *, sandboxed=False, build_root=None, configuration=None):
+    encryption_metadata = configuration.encryption_metadata() if configuration else {}
     if configuration and configuration.signing_channel.startswith("store-") and not sandboxed:
         raise ValueError("Store builds must enable App Sandbox.")
     if configuration and configuration.signing_channel == "store-distribution" and not configuration.provisioning_profile:
@@ -147,6 +148,7 @@ def build_app(signing_identity=None, *, sandboxed=False, build_root=None, config
             info["AgentBoardDistributionChannel"] = configuration.signing_channel
             info["AgentBoardStoreDistribution"] = True
             info["AgentBoardStoreSupportStrategy"] = configuration.store_support_strategy
+            info.update(encryption_metadata)
             info.update(xcode_build_metadata())
     if configuration and configuration.provisioning_profile:
         shutil.copy2(configuration.provisioning_profile, contents / "embedded.provisionprofile")

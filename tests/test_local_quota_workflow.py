@@ -21,11 +21,13 @@ class LocalQuotaWorkflowTests(unittest.TestCase):
             codex, claude, desktop = [root / name for name in ("codex", "claude", "desktop")]
             for directory in (codex, claude, desktop):
                 directory.mkdir()
+            desktop = desktop / "claude-code-sessions"
+            desktop.mkdir()
             grants = dict.fromkeys(("codex", "claude", "claude_desktop"), True)
 
             def monitor(selected=grants):
                 return Monitor(root / "board", codex, claude, claude_desktop_root=desktop,
-                               sandbox=True, source_grants=selected, store_profile=True)
+                               sandbox=True, source_grants=selected, store_profile=False)
 
             with patch("server.UsageSource", side_effect=AssertionError("Account reader constructed")), \
                     patch("server.ClaudeProjectSource", side_effect=AssertionError("Account reader constructed")):

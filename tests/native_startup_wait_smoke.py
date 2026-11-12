@@ -426,7 +426,7 @@ def helper_phase_checks(qa):
         sandbox_argv = ["server", "--data-dir", str(qa / "fake-data"), "--sandbox", "--no-usage", "--no-projects",
                         "--access-token-file", str(qa / "fake-token"), "--parent-lifetime-stdin",
                         "--codex-root", str(qa / "codex"), "--claude-root", str(qa / "claude"),
-                        "--claude-desktop-root", str(qa / "desktop")]
+                        "--claude-desktop-root", str(qa / "desktop/claude-code-sessions")]
         with patch.object(sys, "argv", sandbox_argv), patch.object(server, "read_access_token", return_value="synthetic"), \
              patch.object(sandbox_sources, "activate_source_bookmarks", side_effect=reject_grants), \
              patch.object(server, "Monitor") as forbidden, patch.object(server, "BoardHTTPServer") as listener:

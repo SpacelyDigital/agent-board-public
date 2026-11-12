@@ -1,64 +1,206 @@
 {
   "version": "0.2.5",
-  "build": 60,
-  "verified_on": "2026-11-12 UTC; macOS 26.6 host and existing local macOS 13.0 VM",
-  "source_files": 200,
-  "source_manifest_sha256": "b3f7ef8231ee46c399da3674a8ddb1262c09374cab9fecb0bab3822962a00885",
-  "automated_tests": 672,
-  "packaged_workflow_checks": 36,
-  "packaged_workflow_scope": "36 checks ran against the exact installed build60 collector using disposable local data, accounts disabled and browser checks skipped. These are supporting checks, separate from the live desktop workflows.",
+  "build": 68,
+  "verified_on": "2026-11-12T16:11:40.620834+00:00",
+  "source_files": 203,
+  "source_manifest_sha256": "bf73417f0a0fd58133b60998aa96671f2b20ed599a9f87f0e6c7be16c443800f",
+  "automated_tests": 719,
+  "packaged_workflow_checks": 38,
+  "packaged_workflow_scope": "Exact installed signed build 68 helper with disposable local fixtures, isolated HOME, provider accounts disabled and browser checks skipped.",
   "embedded_modules_verified_against_source": 18,
-  "signing": "Developer ID signed with secure timestamps and hardened runtime. Strict signatures, Gatekeeper assessments, stapled tickets and exact ZIP/DMG readback passed.",
-  "notarization": {
-    "app": "Accepted, zero issues",
-    "dmg": "Accepted, zero issues",
-    "stapled_app_and_dmg": true
+  "signing": "Developer ID signatures, secure timestamps and Gatekeeper verification passed.",
+  "executables": {
+    "Contents/Helpers/AgentBoardCollector.app/Contents/Frameworks/libpython3.12.dylib": "639df01231c10ecde6346d3d84ce6d42e295d3b363eb51ee33f80af8e0bcb52c",
+    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "f21948ed835461c390d99089be1203a9c40983621f1277077ac6555533b893ff",
+    "Contents/MacOS/AgentBoard": "5bf1739d2bcf17f67f1d8c355a5f41ab8defe094ecd4302c7dc9be10ee2a00e3"
   },
+  "zip_sha256": "2cd0b14e786b4a0f36c1dbb25fa26394b1da55012bff53690943eb105b60f021",
+  "dmg_sha256": "cd91d814b0ecbd153f97c034bbb670e1078654b77c696402adc15eda5d6f493b",
   "architecture": "arm64",
   "minimum_macos": "13.0",
-  "executables": {
-    "Contents/Helpers/AgentBoardCollector.app/Contents/Frameworks/libpython3.12.dylib": "57c75a92d7f289b99ae896ab6c0a0fc80f0b9ec42b1bf7b7a2dd93fc78c14b3c",
-    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "ecbc3357d8c75d51f6fc05fa1123d6c11754afaa6c6a83a147da0ce76275c303",
-    "Contents/MacOS/AgentBoard": "cae35d49faf8c39b7453f38edf486df92e4f166e9f4aa3cf49027e4fb339faa9"
-  },
-  "zip_sha256": "5f3ce37b393e00aed36dd78013e22a833326a0c40c074c68b1277dcd75c7f044",
-  "dmg_sha256": "684c7d13230aedd12c9ba6d16897b85a18c4b18ab6e60a9cdfb97caea2a51a0b",
-  "distribution_receipt_sha256": "db692fb0963b7f9503612a316cc261ad89b4d0582ff6055179ae825b6d237606",
-  "changes_since_build56": [
-    "Keep the learned usage retry floor after a successful retry. Healthy slower polling displays the original reading age and next check; failed or overdue checks and expired reset windows are stale.",
-    "Verify an idle Claude project thread from bounded newest-first reply pages, with stable thread-state checks on every page and a final confirmation. Old system notices cannot hide the latest authored reply.",
-    "Retry a rejected native notification briefly while its exact event is still eligible. Reviewed, replaced, expired or disabled notifications are not retried.",
-    "Fence saved account-chat attention and notification eligibility by the current verified account while preserving saved identity and review history.",
-    "Treat missing Claude activity fields as an incomplete response, including a partly incomplete catalog. Preserve only the same account's prior receipt with its original 15-second expiry and normal retry cadence; never turn omitted status into an empty account or a completion.",
-    "Reserve verification work for recent Codex histories on every poll. Rotate recent and older histories independently, reserving one eighth of the unchanged shared time and byte budget for older work. Keep prefix, rewrite, identity and completion checks intact.",
-    "Show the running app version and build in About. Refer to the build receipt and source manifest for the current release instead of embedding a stale build number in README."
+  "notarization": "The app and DMG were accepted, stapled and verified.",
+  "distribution_receipt_sha256": "f2614426ad25fcb271412b8b51a0c50432074bb4d410de70fa48f23298eb2f0a",
+  "changes_since_build60": [
+    "Reuse the board database connection, avoid unchanged writes and batch snapshot reads while retaining FULL synchronous durability.",
+    "Reuse validated Codex index connections. For an eligible read-only index that cannot create SQLite sidecars, use a bounded memory snapshot instead of copying the index to disk on each scan.",
+    "Apply Review and Snooze without waiting for a new full provider scan, while preserving event validation.",
+    "Preserve Reviewed and Snooze for the same verified Claude project reply when a thread is resolved, resumes work or the app restarts, while still alerting for a different assistant reply.",
+    "Keep concurrent launch secrets protected by lifetime locks and remove only safely identified abandoned launch files.",
+    "Separate direct-download account-access documentation from Store local-folder documentation and disclose GitHub Pages IP logging on the hosted support and privacy pages.",
+    "Preserve existing Reviewed acknowledgements when the same Claude project completion is represented differently, and establish a one-time verified reply baseline for eligible older reviewed project revisions. Different later assistant replies still alert."
   ],
   "live_workflows": {
-    "build60_host": "The exact installed release showed an ordinary Claude desktop reply move Cooking to Ready as one card and one new event. Open reached the exact completed chat. Reviewed persisted through quit/relaunch and was no longer notification-eligible. About showed Version 0.2.5 (build 60). Usage rows were aligned and displayed whole values. A five-minute local observer captured 132 samples with no duplicate identities, heartbeat failures, stale usage or rate limits. After restart, Codex completed a six-second initial catch-up and stayed fresh Cooking for all 54 remaining samples across 116.5 seconds and 20 changing activity timestamps. Two isolated pre-restart checking frames each recovered on the next sample; uninterrupted status is not claimed. During that same observation, the ordinary Claude chat source was unavailable in 46 of 132 samples and the Claude project source unavailable in three samples. Saved identity and review state survived; continuous Claude status availability is not claimed.",
-    "build60_recipient_vm": "The existing local macOS 13.0 VM downloaded the exact final build60 DMG, replaced build58 through Finder, accepted the normal Apple-checked first-open prompt and launched the installed app. About displayed Version 0.2.5 (build 60). Saved dark theme and completed setup state persisted. No provider accounts were connected in the VM; connected-provider and visible banner delivery checks remain unverified there.",
-    "build58_host_supporting_only": "Build58 showed one ordinary Claude desktop card move from Cooking to Ready, opened the exact completed chat, and retained Reviewed through quit/relaunch. Usage rows were aligned and displayed whole values. Publication was held because a growing Codex history flickered between verified and checking after restart.",
-    "build58_vm_supporting_only": "The existing local macOS 13 VM downloaded the exact final build 58 DMG, replaced the app through Finder, showed Apple's checked-app first-open prompt and launched. Theme, setup state and notification preference persisted. Provider accounts were not connected; a test notification was attempted but no Agent Board banner was observed. This is not a fresh build 60 check.",
-    "claude_guard_supporting_only": "A five-minute live account-reader check using the frozen build 58 code and private copied board state encountered 16 incomplete and 15 complete receipts. It retained original freshness, expired honestly during longer gaps, preserved one card and produced one stable completed event. The test did not establish uninterrupted provider status availability.",
-    "chatgpt_desktop_prior_evidence": "The user-submitted ChatGPT desktop test completion was observed on build 56. Its current Cooking phase was not captured. A fresh complete ChatGPT desktop lifecycle has not been demonstrated on build 60.",
-    "provider_web_prior_evidence": "Build53 exercised a real short reply and exact-chat handoff in ChatGPT web, alongside Claude desktop checks. No fresh provider web lifecycle was run for build60 because final testing was restricted to desktop apps."
+    "build68": {
+      "status": "passed_for_recorded_interface_and_metadata_scope",
+      "checks": [
+        "Actual direct About reports build 68 and renders the expanded privacy explanation of the Claude Desktop cookie and named Keychain access.",
+        "Actual Claude and Codex usage percentages and the available credit balance render as whole numbers; both readings were fresh and the layout aligned."
+      ],
+      "project_review_migration_metadata": {
+        "status": "passed",
+        "scope": "Read-only installed metadata and root confirmation of natural review recovery; original review markers, review times and reply times preserved.",
+        "review_markers_times_and_reply_times_preserved": true,
+        "unexpected_ready_or_notification_eligibility": false,
+        "manual_review_or_diagnostic_live_writes": false
+      },
+      "scope": "Actual current-macOS native interface plus separately identified read-only migration metadata; no one-hour result is included."
+    },
+    "supporting_store_preview63": {
+      "status": "passed_on_current_macos",
+      "scope": "Actual native Store preview 63 with a fresh Store container; no provider accounts or prompts.",
+      "checks": [
+        "First-launch setup and Cancel without quitting",
+        "Cancel, Quit and relaunch returns to setup",
+        "Start without sources and open samples from the empty board",
+        "Sample Cooking, Needs you and Ready states",
+        "Sample Review, Restore, Rename and Snooze",
+        "Quit and relaunch preserves sample name, review and snooze",
+        "Return to live excludes samples",
+        "About reports build 63 and opens bundled Store privacy",
+        "Tab and Return navigate About"
+      ],
+      "not_exercised": [
+        "Security-scoped source folder grants",
+        "Provider transitions and Open handoff",
+        "Store notifications",
+        "Open at Login",
+        "Spoken VoiceOver",
+        "Complete keyboard-only workflow",
+        "Store distribution or TestFlight binary"
+      ]
+    },
+    "store_preview69": {
+      "status": "passed_for_recorded_scope",
+      "scope": "Actual current-macOS Store preview 69 with disposable sample state; no provider account or source-folder grant was made.",
+      "checks": [
+        "About reports build 69 and displays the bundled Store privacy page.",
+        "Settings omit the Claude usage plugin and display the local-usage scope.",
+        "The source picker targets the exact narrow Claude sessions folder; Cancel leaves the grant unchanged.",
+        "Keyboard interaction exercised sample Ready, Review, Restore, Rename and Snooze.",
+        "Quit and relaunch preserve the sample name and snooze.",
+        "A sample changes from Cooking to Ready for a new reply.",
+        "Move to Background, relaunch and move back preserve sample placement.",
+        "Terminating the exact disposable collector triggers native Retry; retry preserves cards and starts a replacement helper.",
+        "Return to Live excludes all samples.",
+        "Final Quit leaves zero exact app/collector processes and zero launch files."
+      ],
+      "not_exercised": [
+        "Successful source-folder grants or security-scoped transfer",
+        "Provider transitions or Open handoff under the Store profile",
+        "Store notifications",
+        "Open at Login",
+        "Complete keyboard-only coverage",
+        "Spoken VoiceOver",
+        "Exact macOS 13 transfer and workflow",
+        "Closed-window visibility",
+        "Store distribution or TestFlight binary"
+      ]
+    }
+  },
+  "resource_measurements": {
+    "build68_installed_one_hour": {
+      "status": "passed",
+      "elapsed_seconds": 3613.171328665994,
+      "total_bytes_written": 38203392,
+      "completed_interval": true,
+      "process_count": 3,
+      "process_roles": {
+        "native_app": 1,
+        "collector": 2
+      },
+      "scope": "Continuous normal-use measurement of the exact installed native app and both persistent collector processes, bound to the signed build hashes and unchanged process identities."
+    },
+    "build68_installed_24_hour": {
+      "status": "pending"
+    },
+    "supporting_board_database_fixture": {
+      "status": "passed",
+      "scope": "Frozen68 production Monitor and BoardStore with disposable data; no providers or live board writes.",
+      "duration_seconds": 120.006,
+      "scans": 60,
+      "rows": 200,
+      "database_changes": 200,
+      "wal_growth_bytes": 140080,
+      "process_disk_bytes_written": 376832,
+      "bytes_per_second": 3140.1,
+      "budget_bytes_per_second": 10240,
+      "includes_final_checkpoint": true,
+      "synchronous": "FULL"
+    },
+    "supporting_codex_index_fixture": {
+      "status": "passed",
+      "scope": "Mutable production CodexSource with disposable clean-WAL indexes; source database content unchanged.",
+      "readonly_cases": 2,
+      "scans_per_case": 30,
+      "index_bytes": 83984384,
+      "normal_connection_attempts_per_case": 1,
+      "memory_snapshots_per_case": 1,
+      "process_disk_bytes_written_per_readonly_case": 0,
+      "logical_write_bytes_per_readonly_case": 0,
+      "includes_cold_start_and_close": true,
+      "source_full_stat_and_sidecars_unchanged": true,
+      "named_snapshot_files": 0,
+      "retained_footprint_delta_bytes": 86343728,
+      "peak_footprint_delta_bytes": 170344544,
+      "ordinary_writable_index": {
+        "scans": 30,
+        "index_bytes": 12288,
+        "connections": 1,
+        "memory_snapshots": 0,
+        "process_disk_bytes_written": 32768,
+        "logical_write_bytes": 53248,
+        "includes_close": true
+      },
+      "bounds": {
+        "maximum_snapshot_bytes": 134217728,
+        "cooperative_copy_seconds": 1,
+        "failed_snapshot_retry_seconds": 60
+      },
+      "limitation": "The zero-write result covers the read-only index fixture, not the whole application. Snapshot memory can peak near two image sizes plus SQLite and interpreter overhead.",
+      "source_matches_frozen_build68": true
+    }
   },
   "supporting_tests": {
-    "build60_unit_suite": "672 tests passed against the exact frozen build60 source in 19.270 seconds.",
-    "codex_scheduler": "A disposable 38-file backlog reproduced build 58's alternating checked/unchecked status when the active history was appended before each poll. The revised scheduler verified all 12 appends while older histories advanced under the same total budget. A separate disposable 100 MB history verified each of 12 appends in about 35 ms on the development host. These fixtures support, but do not replace, installed build 60 restart testing.",
-    "regressions": "The suite covers partial or missing Claude activity fields, original receipt expiry, account and credential changes, resumed and completed project work, equal-time replies, changed roots during pagination, usage deadlines, notification retry eligibility, continuously appended histories, background progress, rewritten prefixes and unverified over-budget state.",
-    "installed_parity": "200 frozen source files, three signed executable hashes, 18 embedded Python modules and 35 runtime assets matched the final installed release."
+    "native_launch_file_fixture": {
+      "status": "passed",
+      "assertions": 78,
+      "scope": "Disposable owned files, active owner and collector locks, safe stale-file filtering and launch-marker replacement races."
+    },
+    "usage_webkit_fixture": {
+      "status": "passed",
+      "phases": 10,
+      "alignment_checks": 16,
+      "provider_calls": 0,
+      "checks": [
+        "Whole-number usage and balances",
+        "Zero and negative balances",
+        "Weekly reset retained",
+        "Stale age and retry guidance",
+        "Explicit disabled Claude credits",
+        "Store local-usage disclosure"
+      ],
+      "scope": "Actual WebKit rendering of disposable usage data; does not establish live provider availability."
+    },
+    "project_reply_migration": {
+      "status": "passed",
+      "scope": "Frozen68 disposable project source and SQLite workflow; no providers or live state.",
+      "supporting_methods": 5,
+      "related_unit_checks": 113,
+      "unchanged_proof_updates_without_semantic_writes": 59,
+      "heartbeat_seconds": 60,
+      "legacy_review_baseline_persists_through_work_and_restart": true,
+      "different_reply_remains_alertable": true,
+      "ambiguous_legacy_snooze_not_claimed": true
+    }
   },
   "limitations": [
-    "Claude may omit current activity metadata. The last complete reading is usable only until its original 15-second expiry; longer gaps show unavailable status until a complete response arrives. Saved identities and review state remain local, but current status and catalog-only visibility are not guaranteed during an outage.",
-    "The stronger consistency query does not eliminate Claude's sparse activity responses. Missing fields are not treated as unchanged or idle.",
-    "The build60 live Codex test had two isolated verification intervals and a six-second initial catch-up after restart. The sustained alternating backlog defect did not recur during the remaining observation window. This bounded test is not a guarantee for all history sizes or future provider changes.",
-    "A continuously changing transcript that cannot be fully verified within the bounded work allowance can remain unconfirmed. The scheduler does not bypass prefix or rewrite verification or retain an unverified Cooking state indefinitely.",
-    "The ChatGPT desktop Cooking phase was not observed in the user-submitted build 56 test; only its completion was confirmed. No fresh provider web lifecycle was run for 59 or 60.",
-    "The final release installed and launched on macOS 13.0. VM provider accounts were unconnected; connected-provider workflows and visible notification delivery remain unverified there. A host banner was confirmed by the user on build56; this is not a new build60 banner confirmation.",
-    "Provider account readers require the corresponding existing sign-in on this Mac and use interfaces that can change. Errors, rate limits and delayed settlement metadata can delay activity or usage updates.",
-    "Account discovery is bounded to 100 recent conversations per provider. ChatGPT status work is bounded to 256 identities and latest-turn responses to 3 MiB. A first-seen reply that began before monitoring may remain unconfirmed without a finish timestamp or prior baseline.",
-    "This direct Mac distribution is separate from the historical App Store candidate and does not establish App Store approval."
+    "A 24-hour installed resource observation remains pending.",
+    "Claude can omit required status fields in otherwise successful metadata responses. Prior verified data retains its original age and becomes unavailable after its freshness limit; it is not renewed by an incomplete response.",
+    "The Store edition remains a preview. Distribution provisioning, the owner encryption answer, final account scope, TestFlight and App Store submission remain unresolved or unperformed.",
+    "A large Codex history that keeps growing can remain in verification until a stable interval. When foreground and background work are both queued, the per-scan foreground byte allowance is 112 MiB; a larger prefix may not finish verification while appends continue.",
+    "When Claude project metadata is unchanged, cached reply-identity verification can defer a recheck by up to 60 seconds plus the normal polling and read delay.",
+    "Recorded Store preview 69 workflows do not establish successful source grants, Store provider handoff, notifications, Open at Login, complete keyboard coverage, spoken VoiceOver, exact macOS 13 behavior or closed-window visibility."
   ],
-  "release_assessment": "Validated direct-distribution release with the limitations recorded here. The reported regressions have general fixes and automated coverage; final installed desktop and minimum-OS update checks are recorded separately from fixtures and earlier-build evidence.",
-  "publication_scope": "Only the 200 allowlisted application source files, source manifest, finalized build receipt, sanitized distribution receipt and exact signed ZIP/DMG. No live databases, account credentials, private chat identifiers or titles, raw logs, screenshots, diagnostic scripts or private repository history."
+  "release_assessment": "Approved for direct engineering release.",
+  "publication_scope": "Public backup contains only manifest-allowlisted source, sanitized build and distribution receipts, and the exact notarized direct-download ZIP and DMG. No private diagnostics, state databases, test chats, screenshots or working scripts."
 }

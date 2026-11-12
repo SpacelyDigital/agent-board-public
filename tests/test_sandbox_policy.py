@@ -20,7 +20,7 @@ from unittest.mock import patch
 from codex_source import CodexSource
 from server import BoardHTTPServer, Handler, Monitor
 from source_access import require_source_path
-from sandbox_sources import activate_source_bookmarks
+from sandbox_sources import activate_source_bookmarks, release_source_bookmarks
 import collector_entry
 
 
@@ -212,11 +212,12 @@ class SandboxPolicyTests(unittest.TestCase):
         self.root = Path(self.temporary.name).resolve()
         for name in ("codex", "claude", "desktop"):
             (self.root / name).mkdir()
+        (self.root / "desktop/claude-code-sessions").mkdir()
 
     def monitor(self):
         return Monitor(self.root / "data", self.root / "codex", self.root / "claude",
                        usage_enabled=True, projects_enabled=True,
-                       claude_desktop_root=self.root / "desktop", sandbox=True)
+                       claude_desktop_root=self.root / "desktop/claude-code-sessions", sandbox=True)
 
     def test_unsupported_credential_and_external_command_paths_cannot_start(self):
         with patch("claude_source._find_claude", side_effect=AssertionError("External discovery")), \
@@ -328,6 +329,43 @@ class SandboxPolicyTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(2)
+
+    def test_claude_desktop_parent_grant_is_rejected_before_bookmark_resolution(self):
+        support = self.root / "narrow-grant-support"
+        (support / "data").mkdir(parents=True, mode=0o700)
+        roots = {provider: support / "sources-unavailable" / provider
+                 for provider in ("codex", "claude", "claude_desktop")}
+        for root in roots.values():
+            root.mkdir(parents=True)
+        roots["claude_desktop"] = self.root / "desktop"
+        values = {provider: {"path": str(root)} for provider, root in roots.items()}
+        values["claude_desktop"]["bookmark"] = "Zml4dHVyZQ=="
+        manifest = support / "data/manifest.json"
+        manifest.write_text(json.dumps({"version": 1, "sources": values}))
+        manifest.chmod(0o600)
+        with patch("sandbox_sources._foundation", side_effect=AssertionError("Broad grant must not resolve")):
+            with self.assertRaisesRegex(ValueError, "Claude Code sessions folder"):
+                activate_source_bookmarks(manifest, roots, support)
+
+        sessions = self.root / "desktop/claude-code-sessions"
+        roots["claude_desktop"] = sessions
+        values["claude_desktop"]["path"] = str(sessions)
+        manifest.write_text(json.dumps({"version": 1, "sources": values}))
+
+        class FoundationFixture:
+            def CFDataCreate(self, *_): return 1
+            def CFURLCreateByResolvingBookmarkData(self, *_): return 2
+            def CFURLStartAccessingSecurityScopedResource(self, *_): return True
+            def CFURLStopAccessingSecurityScopedResource(self, *_): pass
+            def CFRelease(self, *_): pass
+            def CFURLGetFileSystemRepresentation(self, _url, _resolve, buffer, _size):
+                buffer.value = os.fsencode(sessions)
+                return True
+
+        self.addCleanup(release_source_bookmarks)
+        with patch("sandbox_sources._foundation", return_value=FoundationFixture()):
+            self.assertEqual(activate_source_bookmarks(manifest, roots, support),
+                             {"codex": False, "claude": False, "claude_desktop": True})
 
 
 if __name__ == "__main__":

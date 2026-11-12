@@ -1,6 +1,7 @@
 """Verify native crash cleanup never treats source/checkpoint files as owned."""
 
 import json
+import fcntl
 import os
 from pathlib import Path
 import subprocess
@@ -139,6 +140,64 @@ class NativeLaunchCleanupTests(unittest.TestCase):
         self.assertFalse(self.token_path.exists())
         self.assertTrue(self.manifest.exists(), "An unvalidated manifest must be preserved.")
         self.assertFalse((self.data / "board.sqlite3").exists())
+
+    def marker(self):
+        marker = self.data / (".collector-launch-" + self.instance + ".lock")
+        marker.touch(mode=0o600)
+        return marker
+
+    def test_collector_holds_shared_lease_after_owner_exit_and_removes_orphan_marker(self):
+        marker = self.marker()
+        owner = os.open(marker, os.O_RDONLY)
+        fcntl.flock(owner, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        capture = self.capture()
+        os.close(owner)
+        contender = os.open(marker, os.O_RDONLY)
+        try:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(contender)
+        self.assertEqual(set(capture.cleanup()), {self.token_path.name, self.manifest.name})
+        self.assertFalse(marker.exists())
+
+    def test_live_owner_keeps_marker_until_its_own_cleanup(self):
+        marker = self.marker()
+        owner = os.open(marker, os.O_RDONLY)
+        try:
+            fcntl.flock(owner, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            capture = self.capture()
+            capture.cleanup()
+            self.assertTrue(marker.exists())
+        finally:
+            os.close(owner)
+
+    def test_shared_or_substituted_marker_cannot_authorize_cleanup(self):
+        marker = self.marker()
+        linked = self.data / "keep-launch-marker"
+        os.link(marker, linked)
+        self.assertEqual(self.capture().cleanup(), [])
+        self.assertTrue(self.token_path.exists())
+        self.assertTrue(self.manifest.exists())
+        marker.unlink()
+        marker.symlink_to(linked)
+        self.assertEqual(self.capture().cleanup(), [])
+        self.assertTrue(self.token_path.exists())
+
+    def test_manifest_is_captured_only_after_verification(self):
+        marker = self.marker()
+        capture = self.capture(manifest_path=None, manifest_fingerprint=None)
+        self.assertNotIn(self.manifest.name, capture.entries)
+        capture.capture_manifest(self.manifest, self.observation["fingerprint"])
+        self.assertEqual(set(capture.cleanup()), {self.token_path.name, self.manifest.name})
+        self.assertFalse(marker.exists())
+
+    def test_unverified_manifest_keeps_its_marker_for_later_safe_sweep(self):
+        marker = self.marker()
+        capture = self.capture(manifest_fingerprint=None)
+        self.assertEqual(capture.cleanup(), [self.token_path.name])
+        self.assertTrue(marker.exists())
+        self.assertTrue(self.manifest.exists())
 
 
 if __name__ == "__main__":

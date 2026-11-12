@@ -10,12 +10,13 @@ import hashlib
 import copy
 import json
 import math
+import mmap
 import sqlite3
 import stat as stat_module
 import os
-import secrets
+import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,13 +38,27 @@ RECENT_TRANSCRIPT_SECONDS = 60
 # Reserve a small part of each existing poll budget for older histories. Recent
 # appends still get work on every poll, without starving cold history indexing.
 BACKGROUND_BUDGET_FRACTION = 1 / 8
-_INDEX_COPY_BYTES = 64 * 1024 * 1024
+# Covers ordinary larger indexes while keeping one cached snapshot per source.
+# Attempts still share this byte allowance and the cooperative one-second cap.
+_INDEX_COPY_BYTES = 128 * 1024 * 1024
 _INDEX_COPY_ATTEMPTS = 2
 _INDEX_COPY_SECONDS = 1.0
+_INDEX_RETRY_SECONDS = 60.0
 
 
 class _IndexChanged(ValueError):
     pass
+
+
+class _IndexCopyTooLarge(ValueError):
+    pass
+
+
+class _IndexSnapshot:
+    """A query-only memory database with its pinned source validation."""
+    def __init__(self, connection, validate):
+        self.connection = connection
+        self.validate = validate
 
 
 def _index_signature(value):
@@ -91,47 +106,90 @@ def _open_empty_index_wal(directory):
         raise
     return wal, expected
 
-@contextmanager
-def _private_index_copy(root, parent):
-    """Yield a complete, unlinked private copy, never an immutable live source.
+def _index_identity(value):
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_nlink, getattr(value, "st_flags", 0))
 
-    The deadline is cooperative between regular-file reads. The scratch name
-    is removed while empty, before any source bytes, so exit or process death
-    cannot leave a named database copy. All file operations use pinned FDs.
-    """
+
+@contextmanager
+def _readonly_index_snapshot(root):
+    """Keep a normal SQLite reader open; every scan starts a new transaction."""
     root = require_source_directory(root, root)
-    parent = Path(parent).absolute()
-    parent_before = parent.lstat()
-    if (not stat_module.S_ISDIR(parent_before.st_mode) or parent_before.st_uid != os.getuid()
-            or stat_module.S_IMODE(parent_before.st_mode) != 0o700
-            or parent.resolve().is_relative_to(root)):
-        raise ValueError("Private index storage is unavailable.")
-    directory = storage = scratch = source = wal = None
-    wal_signature = None
-    scratch_name = None
+    directory = source = connection = None
     try:
-        storage = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        current_parent = os.fstat(storage)
-        if _index_signature(current_parent) != _index_signature(parent_before):
-            raise ValueError("Private index storage changed before use.")
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        original_root = os.fstat(directory)
+        source = os.open("state_5.sqlite", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                         dir_fd=directory)
+        original_source = os.fstat(source)
+        if (not stat_module.S_ISREG(original_source.st_mode) or original_source.st_uid != os.getuid()
+                or original_source.st_nlink != 1):
+            raise _IndexChanged("The Codex index is not a supported regular file.")
+
+        def sidecars():
+            result = {}
+            for name in ("state_5.sqlite-wal", "state_5.sqlite-shm", "state_5.sqlite-journal"):
+                try:
+                    value = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if (not stat_module.S_ISREG(value.st_mode) or value.st_uid != os.getuid()
+                        or value.st_nlink != 1):
+                    raise _IndexChanged("The Codex index has an unsupported sidecar.")
+                result[name] = _index_identity(value)
+            return result
+
+        # Reject substituted existing sidecars even if they change during open.
+        initial_sidecars = sidecars()
+        connection = sqlite3.connect((root / "state_5.sqlite").as_uri() + "?mode=ro", uri=True,
+                                     timeout=0.2, check_same_thread=False)
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("PRAGMA temp_store = MEMORY")
+        # A read-only WAL connection may initialize its shared-memory index.
+        connection.execute("PRAGMA schema_version").fetchone()
+        expected_sidecars = sidecars()
+        if any(expected_sidecars.get(name) != value for name, value in initial_sidecars.items()):
+            raise _IndexChanged("The Codex index sidecars changed during open.")
+
+        def validate():
+            current_root = root.lstat()
+            current = os.stat("state_5.sqlite", dir_fd=directory, follow_symlinks=False)
+            if (_index_identity(current) != _index_identity(original_source)
+                    or _index_identity(os.fstat(source)) != _index_identity(original_source)
+                    or (current_root.st_dev, current_root.st_ino, current_root.st_mode, current_root.st_uid, current_root.st_gid)
+                    != (original_root.st_dev, original_root.st_ino, original_root.st_mode,
+                        original_root.st_uid, original_root.st_gid)
+                    or expected_sidecars != sidecars()):
+                raise _IndexChanged("The Codex index identity changed while being read.")
+        validate()
+        yield _IndexSnapshot(connection, validate)
+        validate()
+    finally:
+        if connection is not None:
+            connection.close()
+        for descriptor in (source, directory):
+            if descriptor is not None:
+                os.close(descriptor)
+
+
+@contextmanager
+def _private_index_snapshot(root):
+    """Read a stable checkpointed WAL image into memory without source writes.
+
+    Anonymous mmap bounds the input allocation and releases it immediately
+    after deserialize copies it. Peak allocation is about two index images,
+    plus SQLite/query overhead. No database image is written to a scratch file.
+    """
+    if not callable(getattr(sqlite3.Connection, "deserialize", None)):
+        raise ValueError("In-memory index snapshots are unavailable.")
+    root = require_source_directory(root, root)
+    directory = source = wal = connection = buffer = None
+    try:
         directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         original_directory = os.fstat(directory)
         # Retain one sidecar baseline across every copy attempt and query.
         wal, wal_signature = _open_empty_index_wal(directory)
         _check_index_sidecars(directory, wal, wal_signature)
-        scratch_name = ".codex-index-" + secrets.token_hex(16)
-        scratch = os.open(scratch_name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                          0o600, dir_fd=storage)
-        private = os.fstat(scratch)
-        named = os.stat(scratch_name, dir_fd=storage, follow_symlinks=False)
-        if (not stat_module.S_ISREG(private.st_mode) or private.st_uid != os.getuid()
-                or stat_module.S_IMODE(private.st_mode) != 0o600 or private.st_nlink != 1 or private.st_size != 0
-                or _index_signature(named) != _index_signature(private)):
-            raise ValueError("Private index scratch identity is invalid.")
-        os.unlink(scratch_name, dir_fd=storage)
-        scratch_name = None
-        if os.fstat(scratch).st_nlink != 0:
-            raise ValueError("Private index scratch must be unlinked before copying.")
         deadline = time.monotonic() + _INDEX_COPY_SECONDS
         remaining = _INDEX_COPY_BYTES
 
@@ -139,9 +197,11 @@ def _private_index_copy(root, parent):
             _check_index_sidecars(directory, wal, wal_signature)
             current = os.stat("state_5.sqlite", dir_fd=directory, follow_symlinks=False)
             current_root = root.lstat()
-            if (_index_signature(os.fstat(source)) != _index_signature(before)
-                    or _index_signature(current) != _index_signature(before)
-                    or (current_root.st_dev, current_root.st_ino) != (original_directory.st_dev, original_directory.st_ino)):
+            if (_index_wal_signature(os.fstat(source)) != _index_wal_signature(before)
+                    or _index_wal_signature(current) != _index_wal_signature(before)
+                    or (current_root.st_dev, current_root.st_ino, current_root.st_mode, current_root.st_uid, current_root.st_gid)
+                    != (original_directory.st_dev, original_directory.st_ino, original_directory.st_mode,
+                        original_directory.st_uid, original_directory.st_gid)):
                 raise _IndexChanged("The Codex index changed while being read.")
 
         for attempt in range(_INDEX_COPY_ATTEMPTS):
@@ -151,14 +211,16 @@ def _private_index_copy(root, parent):
                     raise ValueError("The private index read exceeded its cooperative time budget.")
                 source = os.open("state_5.sqlite", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
                 before = os.fstat(source)
+                if before.st_size > _INDEX_COPY_BYTES:
+                    raise _IndexCopyTooLarge("The Codex index exceeds the bounded memory snapshot size.")
                 if (not stat_module.S_ISREG(before.st_mode) or before.st_nlink != 1
                         or before.st_uid != os.getuid() or not 100 <= before.st_size <= remaining):
                     raise ValueError("The Codex index is not a supported regular file.")
                 header = os.pread(source, 100, 0)
                 if header[:16] != b"SQLite format 3\x00" or header[18:20] != b"\x02\x02":
                     raise ValueError("The Codex index is not a checkpointed WAL-mode database.")
-                os.ftruncate(scratch, 0)
-                os.lseek(scratch, 0, os.SEEK_SET)
+                stable(before)
+                buffer = mmap.mmap(-1, before.st_size)
                 copied = 0
                 while copied < before.st_size:
                     if time.monotonic() >= deadline:
@@ -167,40 +229,48 @@ def _private_index_copy(root, parent):
                     chunk = os.read(source, min(1024 * 1024, before.st_size - copied))
                     if not chunk:
                         raise _IndexChanged("The Codex index changed while being copied.")
+                    buffer[copied:copied + len(chunk)] = chunk
                     copied += len(chunk)
                     remaining -= len(chunk)
-                    view = memoryview(chunk)
-                    while view:
-                        written = os.write(scratch, view)
-                        if written <= 0:
-                            raise OSError("The private index copy could not be written.")
-                        view = view[written:]
                     stable(before)
+                del chunk
                 stable(before)
-                if time.monotonic() >= deadline or os.fstat(scratch).st_nlink != 0:
-                    raise ValueError("The private index copy exceeded its safety budget.")
+                # sqlite3_deserialize requires rollback-format bytes. SQLite's
+                # documented conversion changes only this verified memory image;
+                # a nonempty WAL or any journal has already failed closed.
+                buffer[18:20] = b"\x01\x01"
+                connection = sqlite3.connect(":memory:", check_same_thread=False)
+                connection.execute("PRAGMA query_only = ON")
+                connection.execute("PRAGMA temp_store = MEMORY")
+                connection.deserialize(buffer)
+                buffer.close()
+                buffer = None
+                stable(before)
+                if time.monotonic() >= deadline:
+                    raise ValueError("The memory index copy exceeded its safety budget.")
+                connection.execute("PRAGMA schema_version").fetchone()
                 break
             except _IndexChanged:
+                if connection is not None:
+                    connection.close()
+                    connection = None
+                if buffer is not None:
+                    buffer.close()
+                    buffer = None
                 if source is not None:
                     os.close(source)
                     source = None
                 if attempt + 1 == _INDEX_COPY_ATTEMPTS:
                     raise
         stable(before)
-        yield scratch
+        yield _IndexSnapshot(connection, lambda: stable(before))
         stable(before)
     finally:
-        # A failure before the initial unlink can leave only our empty file.
-        # Never remove a replacement or any unrelated named entry.
-        if scratch_name is not None and scratch is not None and storage is not None:
-            try:
-                current = os.stat(scratch_name, dir_fd=storage, follow_symlinks=False)
-                private = os.fstat(scratch)
-                if current.st_size == private.st_size == 0 and _index_signature(current) == _index_signature(private):
-                    os.unlink(scratch_name, dir_fd=storage)
-            except OSError:
-                pass
-        for descriptor in (source, scratch, wal, directory, storage):
+        if connection is not None:
+            connection.close()
+        if buffer is not None:
+            buffer.close()
+        for descriptor in (source, wal, directory):
             if descriptor is not None:
                 os.close(descriptor)
 
@@ -489,86 +559,138 @@ class CodexSource:
         self.revision_lookup = None
         self._last_good_scan: float | None = None
         self._indexed_paths: set[Path] = set()
+        self._excluded_index_ids: set[str] = set()
+        self._index_lock = threading.RLock()
+        self._cached_index = None
+        self._index_retry_at = 0.0
+        self._index_error_detail = None
+        self._closed = False
+
+    def _drop_index_cache(self):
+        cached, self._cached_index = self._cached_index, None
+        if cached is not None:
+            try:
+                cached[1].close()
+            except (sqlite3.Error, OSError, ValueError):
+                # Invalidation is expected when a pinned source has changed.
+                # ExitStack still closes its connection and every descriptor.
+                pass
+
+    def close(self):
+        """Release memory snapshot data after shutdown or source revocation."""
+        with self._index_lock:
+            self._closed = True
+            self._drop_index_cache()
+
+    def _index_copy_failed(self, error):
+        self._index_retry_at = time.monotonic() + _INDEX_RETRY_SECONDS
+        self._index_error_detail = (
+            "Codex's index exceeds the 128 MiB read-only snapshot limit. Retrying in up to 60 seconds."
+            if isinstance(error, _IndexCopyTooLarge) else
+            "Codex's read-only index snapshot could not be verified. Retrying in up to 60 seconds.")
 
     @contextmanager
     def _index_connection(self, database):
-        connection = None
-        if self.confine_paths:
-            selected_root = require_source_directory(self.root, self.root)
-            if database == self.root / "state_5.sqlite":
-                database = require_source_path(database, self.root)
-            expected = selected_root / "state_5.sqlite"
-            if database != expected or require_source_path(database, selected_root) != expected:
-                raise ValueError("Only the selected Codex index may be read.")
-        try:
+        # Both cache types are serialized with close. A normal reader keeps
+        # SQLite's WAL coordination; only a verified memory image is immutable.
+        with self._index_lock:
+            if self._closed:
+                raise ValueError("The Codex source is closed.")
+            connection = None
             try:
-                connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2)
-                connection.execute("PRAGMA query_only = ON")
-                # WAL access can fail on the first page read, after connect succeeds.
-                connection.execute("PRAGMA schema_version").fetchone()
-            except sqlite3.Error as error:
-                if connection is not None:
-                    connection.close()
-                    connection = None
-                code = getattr(error, "sqlite_errorcode", None)
-                if (not self.confine_paths or self.snapshot_parent is None or not isinstance(code, int)
-                        or code & 0xff not in (sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_READONLY)):
-                    raise
-                with _private_index_copy(self.root, self.snapshot_parent) as snapshot:
-                    # Only this complete private unlinked file is immutable.
-                    connection = sqlite3.connect("file:/dev/fd/" + str(snapshot) + "?mode=ro&immutable=1", uri=True, timeout=0.2)
+                selected_root = require_source_directory(self.root, self.root)
+                if database == self.root / "state_5.sqlite":
+                    database = require_source_path(database, self.root)
+                expected = selected_root / "state_5.sqlite"
+                if database != expected or require_source_path(database, selected_root) != expected:
+                    raise ValueError("Only the selected Codex index may be read.")
+                if self._cached_index is not None:
                     try:
-                        connection.execute("PRAGMA query_only = ON")
-                        connection.execute("PRAGMA schema_version").fetchone()
-                        yield connection
-                    finally:
-                        connection.close()
-                        connection = None
-                return
-            yield connection
-        finally:
-            if connection is not None:
-                connection.close()
+                        root, _, snapshot, cached_connection = self._cached_index
+                        if selected_root != root:
+                            raise _IndexChanged("The selected Codex folder changed.")
+                        snapshot.validate()
+                        connection = cached_connection
+                    except (OSError, ValueError):
+                        self._drop_index_cache()
+                if connection is None:
+                    if self._index_retry_at and time.monotonic() < self._index_retry_at:
+                        raise ValueError(self._index_error_detail)
+                    stack = ExitStack()
+                    try:
+                        try:
+                            snapshot = stack.enter_context(_readonly_index_snapshot(selected_root))
+                        except sqlite3.Error as error:
+                            code = getattr(error, "sqlite_errorcode", None)
+                            if (not self.confine_paths or self.snapshot_parent is None or not isinstance(code, int)
+                                    or code & 0xff not in (sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_READONLY)):
+                                raise
+                            try:
+                                snapshot = stack.enter_context(_private_index_snapshot(selected_root))
+                            except (sqlite3.Error, OSError, ValueError, MemoryError) as copy_error:
+                                self._index_copy_failed(copy_error)
+                                raise
+                        snapshot.validate()
+                        connection = snapshot.connection
+                        self._cached_index = (selected_root, stack, snapshot, connection)
+                    except BaseException:
+                        stack.close()
+                        raise
+                    self._index_retry_at = 0.0
+                    self._index_error_detail = None
+                yield connection
+                if require_source_directory(self.root, self.root) != selected_root:
+                    raise _IndexChanged("The selected Codex folder changed.")
+                self._cached_index[2].validate()
+            except BaseException as error:
+                if self._cached_index is not None:
+                    self._drop_index_cache()
+                    if isinstance(error, (sqlite3.Error, OSError, ValueError, MemoryError)):
+                        self._index_copy_failed(error)
+                raise
 
     def _thread_rows(self, since: float) -> tuple[list[dict[str, Any]], str | None]:
         database = self.root / "state_5.sqlite"
         self._indexed_paths = set()
+        self._excluded_index_ids = set()
         if not self.confine_paths and not database.exists():
             return [], "Codex thread database is not present."
         try:
-            if self.confine_paths:
-                database = require_source_path(database, self.root)
             # mode=ro and query_only ensure this connection cannot mutate Codex data.
             with self._index_connection(database) as conn:
                 conn.row_factory = sqlite3.Row
-                columns = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
-                if not {"id", "rollout_path", "updated_at"} <= columns:
-                    return [], "Codex thread database has an unsupported schema."
-                self._indexed_paths = {Path(row[0]).expanduser() for row in conn.execute(
-                    "SELECT rollout_path FROM threads WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT ?",
-                    [int(since), MAX_THREADS * 10],
-                ) if isinstance(row[0], str) and 0 < len(row[0]) <= 4096}
-                conditions, params = ["updated_at >= ?"], [int(since)]
-                if "archived" in columns:
-                    conditions.append("COALESCE(archived, 0) = 0")
-                if "thread_source" in columns:
-                    conditions.append("COALESCE(thread_source, '') NOT IN ('subagent', 'guardian_review', 'review')")
-                if "agent_path" in columns:
-                    conditions.append("agent_path IS NULL")
-                rows = [dict(row) for row in conn.execute(
-                    "SELECT * FROM threads WHERE " + " AND ".join(conditions) + " ORDER BY updated_at DESC LIMIT ?",
-                    params + [MAX_THREADS],
-                )]
-                child_ids: set[str] = set()
+                conn.execute("BEGIN")
                 try:
-                    child_ids = {row[0] for row in conn.execute("SELECT child_thread_id FROM thread_spawn_edges")}
-                except sqlite3.Error:
-                    pass
-                return [row for row in rows if isinstance(row.get("id"), str) and 0 < len(row["id"]) <= 200
-                        and isinstance(row.get("rollout_path"), str) and 0 < len(row["rollout_path"]) <= 4096
-                        and row["id"] not in child_ids and not _is_subagent(row)], None
-        except (sqlite3.Error, OSError, ValueError):
-            return [], "Codex thread database could not be read."
+                    columns = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
+                    if not {"id", "rollout_path", "updated_at"} <= columns:
+                        return [], "Codex thread database has an unsupported schema."
+                    indexed = {Path(row[0]).expanduser() for row in conn.execute(
+                        "SELECT rollout_path FROM threads WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT ?",
+                        [int(since), MAX_THREADS * 10],
+                    ) if isinstance(row[0], str) and 0 < len(row[0]) <= 4096}
+                    excluded = self._excluded_ids(conn, columns)
+                    conditions, params = ["updated_at >= ?"], [int(since)]
+                    if "archived" in columns:
+                        conditions.append("COALESCE(archived, 0) = 0")
+                    if "thread_source" in columns:
+                        conditions.append("COALESCE(thread_source, '') NOT IN ('subagent', 'guardian_review', 'review')")
+                    if "agent_path" in columns:
+                        conditions.append("agent_path IS NULL")
+                    rows = [dict(row) for row in conn.execute(
+                        "SELECT * FROM threads WHERE " + " AND ".join(conditions) + " ORDER BY updated_at DESC LIMIT ?",
+                        params + [MAX_THREADS],
+                    )]
+                    rows = [row for row in rows if isinstance(row.get("id"), str) and 0 < len(row["id"]) <= 200
+                            and isinstance(row.get("rollout_path"), str) and 0 < len(row["rollout_path"]) <= 4096
+                            and row["id"] not in excluded and not _is_subagent(row)]
+                finally:
+                    conn.rollback()
+            # Publish only after post-query source validation succeeded. Archive
+            # and child exclusions belong to the same index transaction.
+            self._indexed_paths, self._excluded_index_ids = indexed, excluded
+            return rows, None
+        except (sqlite3.Error, OSError, ValueError, MemoryError):
+            return [], self._index_error_detail or "Codex thread database could not be read."
 
     def _rollout_path(self, path: Path) -> Path:
         if self.confine_paths:
@@ -641,6 +763,10 @@ class CodexSource:
         return [path for _, path in sorted(paths, key=lambda item: item[0], reverse=True)[:MAX_THREADS]]
 
     def scan(self, now: float, cutoff: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        if self._closed:
+            return [], {"id": "codex", "name": "Codex", "provider": "codex", "available": False,
+                        "detail": "Codex monitoring is stopped.", "observed": 0,
+                        "updated_at": now, "last_seen": self._last_good_scan}
         rows, database_error = self._thread_rows(min(cutoff, now - LOOKBACK_SECONDS))
         indexed = self._indexed_paths
         candidates: list[tuple[dict[str, Any], Path]] = [(row, Path(row["rollout_path"]).expanduser()) for row in rows if row.get("rollout_path")]
@@ -748,12 +874,11 @@ class CodexSource:
             if thread_id in seen:
                 continue
             seen.add(thread_id)
-            # Archived indexed paths are suppressed below using a separate read-only
-            # set, because discovering the raw file must not resurrect an archive.
+            # The same index snapshot supplies archive and child exclusions,
+            # because discovering a raw file must not resurrect an archive.
             observations.append(self._observation(row, state, now, mtime))
         # Fallback must respect archives even when the indexed query excluded them.
-        excluded = self._excluded_ids()
-        observations = [item for item in observations if item["id"] not in excluded]
+        observations = [item for item in observations if item["id"] not in self._excluded_index_ids]
         candidate_paths = {path for _, path in candidates}
         self._files = {path: state for path, state in self._files.items() if path in candidate_paths}
         self._cursors = {path: state for path, state in self._cursors.items() if path in candidate_paths}
@@ -766,14 +891,23 @@ class CodexSource:
         elif unreadable:
             detail = f"Reading local Codex turn events; {unreadable} rollout file(s) could not be read."
         elif database_error:
-            detail = "Reading recent Codex rollouts; thread index is unavailable."
+            detail = "Reading recent Codex rollouts. " + database_error
         return observations, {
             "id": "codex", "name": "Codex", "provider": "codex", "available": available,
             "detail": detail, "observed": len(observations), "updated_at": now,
             "last_seen": self._last_good_scan,
         }
 
-    def _excluded_ids(self) -> set[str]:
+    def _excluded_ids(self, connection=None, columns=None) -> set[str]:
+        if connection is not None:
+            cols = columns if columns is not None else {row[1] for row in connection.execute("PRAGMA table_info(threads)")}
+            excluded = ({row[0] for row in connection.execute("SELECT id FROM threads WHERE archived = 1")}
+                        if "archived" in cols else set())
+            try:
+                excluded.update(row[0] for row in connection.execute("SELECT child_thread_id FROM thread_spawn_edges"))
+            except sqlite3.Error:
+                pass
+            return excluded
         database = self.root / "state_5.sqlite"
         if not self.confine_paths and not database.exists():
             return set()
@@ -781,15 +915,7 @@ class CodexSource:
             if self.confine_paths:
                 database = require_source_path(database, self.root)
             with self._index_connection(database) as conn:
-                cols = {row[1] for row in conn.execute("PRAGMA table_info(threads)")}
-                if "archived" not in cols:
-                    return set()
-                excluded = {row[0] for row in conn.execute("SELECT id FROM threads WHERE archived = 1")}
-                try:
-                    excluded.update(row[0] for row in conn.execute("SELECT child_thread_id FROM thread_spawn_edges"))
-                except sqlite3.Error:
-                    pass
-                return excluded
+                return self._excluded_ids(conn)
         except (sqlite3.Error, OSError, ValueError):
             return set()
 

@@ -6,7 +6,7 @@ Support and Privacy website was owner-approved and published.
 
 - `APP_STORE_METADATA.md` contains proposed listing text, verified website URLs
   and screenshot notes.
-- `REVIEW_NOTES.md` records implementation, bounded validation and review steps.
+- `REVIEW_NOTES.md` contains reviewer-facing workflow instructions.
 - `PRIVACY_ANSWERS.md` maps the local-only Store build to privacy questions.
 - `site/` contains the reviewed policy/support source. The published policy also
   discloses its hosting provider's visitor-IP security logs.
@@ -18,7 +18,7 @@ live desktop/narrow navigation. The site has no scripts, remote assets,
 analytics, forms or log uploader. Its mail link opens the user's mail app with
 no prefilled message or attachment. Monitoring does not load the website.
 
-This shipping-status snapshot ends on November 6, 2026 at 06:17 UTC.
+The records below are historical, ending November 6, 2026 at 06:17 UTC. The November 12 source updates include separate direct-download privacy disclosures and Store-only listing copy. Their live website publication has not yet been verified.
 
 The owner approved a free app and **Spacelydigital@gmail.com** as the public
 support contact. The release App ID `com.spacelydigital.agentboard` is registered.
@@ -51,7 +51,5 @@ negative non-US/unknown/offline conditions remain unverified. Worldwide
 external-link approval is not claimed. No payment or transaction-verification
 feature is implemented by these files.
 
-The privacy copy covers the sandboxed Store build and local quota exports.
-Prototype saved-account readers are outside that package and are not supported
-Store integrations. No new project license grant is made by publishing source;
+The Store privacy copy covers local source-folder reads and Codex local usage. Direct-download account readers are described separately in `site/direct-privacy.html` and are excluded from the Store package. No new project license grant is made by publishing source;
 keep dependency and provider notices intact.

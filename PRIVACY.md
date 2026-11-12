@@ -32,22 +32,21 @@ service logs in the direct-download prototype are stored in:
 ~/Library/Application Support/Agent Board/data
 ```
 
-The Store preview uses its own macOS app container. It reads only
-the Codex, Claude Sessions and Claude Desktop folders chosen through the native
-folder controls. Read-only bookmarks are kept on the same Mac and transferred
+The Store edition uses its own macOS app container. It reads only
+the selected Codex and Claude Code folders and Claude Desktop’s narrower
+claude-code-sessions folder through native read-only folder controls. Read-only bookmarks are kept on the same Mac and transferred
 only to the bundled collector. Forget Source Folders stops the collector before
 discarding those bookmarks. Unsupported account helpers and saved-credential
 reads are disabled in that build, including when invoked directly.
 
-If a read-only open of the selected Codex index fails, Agent Board may make a
-bounded local copy of that index in a private temporary file on your Mac. The
-copy can contain index metadata beyond the fields shown on the board. This
-fallback does not copy session or transcript files, change original sources or
-folder permissions, or upload the copy.
-
-Before copying any index data, Agent Board removes the empty temporary file’s
-folder entry. The copy remains in an unnamed local file that the operating
-system releases when the reader closes it or the reader process ends.
+If a read-only open of the selected Codex index fails because its folder cannot
+support SQLite's sidecar files, Agent Board can read a bounded snapshot into
+process memory. The snapshot can contain index metadata beyond the fields shown
+on the board. It is reused only while the index and its journal state remain
+unchanged, and is discarded when invalidated or the reader closes. It is not
+written to a temporary file. This fallback does not copy transcripts, edit
+provider files or folder permissions, or upload data. If the snapshot cannot be
+verified or allocated within its limits, the source stays unavailable.
 
 When confirmed database corruption requires a fresh board, the app preserves
 the old database and matching journal files in a private local recovery folder
@@ -68,23 +67,16 @@ Agent Board does not edit, delete, archive or send messages in a provider chat.
 
 The Store profile excludes the private prototype's authenticated provider and
 cloud-project readers. It does not read saved sign-ins or make provider account
-requests. Codex quota readings come from verified local session records. An
-optional bundled Claude plugin, installed by the user in Claude, writes cached
-quota percentages, reset times and observation times to two files under the
-selected Claude folder. It exports no chats, prompts, credentials or account
-identifiers and makes no network requests.
+requests. Codex quota readings come from verified local session records. Claude usage is not available in the Store edition, and no Claude plugin or exporter is bundled with it.
 
 Agent Board displays the original observation time and marks old or incomplete
 readings stale. Reading a cached file does not confirm the active account or a
 renewed allowance after a scheduled reset. Missing readings stay unavailable;
 the app does not send a prompt to refresh them.
 
-## Private prototype account requests
+## Direct-download account requests
 
-Optional account features in the private direct-download prototype use existing
-sign-ins. They are network requests, even though the dashboard and its database
-are local. The Claude saved-sign-in integration is not cleared for public or
-App Store distribution; the sandbox proof build does not use it.
+Optional account features in the direct-download edition use existing saved sign-ins from the matching provider apps. These features make network requests even though the dashboard and its database are local. They are excluded from the Store edition. Their use of provider interfaces is separate from Apple notarization and does not imply provider authorization or a supported public API.
 
 - **Claude usage and projects:** Read-only HTTPS requests to the fixed
   `https://api.anthropic.com` origin retrieve subscription limits, project status,
@@ -107,7 +99,7 @@ App Store distribution; the sandbox proof build does not use it.
   The reader retains exact conversation IDs, titles, activity and completion
   markers. Conversation bodies, settings and artifact contents are not retained.
   Redirects and proxy configuration are rejected, and TLS is validated. It does
-  not read browser cookie stores, refresh credentials or initiate a sign-in.
+  not read cookies from unrelated web browsers, refresh credentials or initiate a sign-in. It reads Claude Desktop’s saved session-cookie database and decrypts its existing credential in memory using the named Claude Safe Storage Keychain item.
   A private local checkpoint stores an opaque account scope and completion
   markers so restarting the app does not repeat reviewed alerts. The Store
   profile excludes this reader.

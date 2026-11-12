@@ -1,3 +1,15 @@
+# Current Store engineering status, November 12, 2026
+
+Build 60 is the direct-download baseline for this remediation. It is not a Store candidate. Store preview 63 passed packaging checks and actual first-launch Cancel, empty-board sample entry, Review/Restore/Rename/Snooze persistence, and bundled About/Privacy navigation on the current macOS. Final candidate checks are still in progress; no new distribution package or upload has been validated yet. Earlier build 25/27/29 claims below are historical evidence only.
+
+The Store edition excludes account chat readers, saved credentials and provider-command readers. Its source now excludes the Claude usage plugin, uses the narrower Claude Code sessions folder, and requires an explicit owner-approved encryption answer before distribution packaging. A preview deliberately leaves an unanswered classification unset.
+
+Before submission, verify a new numbered candidate with a provisioning profile through TestFlight on a clean account. Complete first-launch Cancel, Sample Board, source grants, live status transitions, history actions, notifications, login launch, menu-bar monitoring, Quit, persistence, privacy and support workflows. Measure idle writes below 10 KiB/s and normal-use writes below 50 MiB over one hour, both with Codex open and closed. Check for new disk-write resource reports after 24 hours. VoiceOver, keyboard and macOS 13 checks must use the final candidate.
+
+Distribution requires `--uses-non-exempt-encryption yes|no` using the owner's classification, and `--encryption-compliance-code` only if applicable. This is a packaging input, not an automatic legal determination. Submission, availability and trader declarations remain separate owner-controlled steps. Account-chat scope for the Store is still under discussion.
+
+## Historical record
+
 # Mac App Store readiness
 
 Status as of November 6, 2026, 06:17 UTC: **not ready for submission**. The owner approved a

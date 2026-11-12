@@ -1,17 +1,25 @@
 # Agent Board
 
+The direct-download edition includes optional account-chat and account-usage readers. The sandboxed Store edition covers local Codex and Claude Code sessions and excludes those account readers. Store packaging and submission readiness are tracked in [APP_STORE_READINESS.md](APP_STORE_READINESS.md); older Store build records are historical.
+
 Agent Board is a local Mac dashboard for Codex, ChatGPT, Claude Code and Claude
 chats. It shows which chats are working, waiting for your input or
 have a reply ready. Open returns to the original chat. Reviewed moves an item
 into dashboard history until new activity without changing the source chat.
 
-## Current direct build, November 11, 2026
+## Current direct build, November 12, 2026
 
 The direct Mac candidate uses the app identifier `local.agentboard.display`.
 This is distinct from the historical App Store candidate below. The release's
 `BUILD-RECEIPT.json` records its exact version, build, signing, notarization and
 validation results. `SOURCE-MANIFEST.json` identifies the reviewed source files.
 It is not an App Store release.
+
+The board reuses its database connection and skips unchanged writes. Codex index
+reads also reuse a validated connection; when a read-only folder cannot support
+SQLite sidecars, a bounded snapshot stays in memory rather than being copied to
+disk each scan. Review and Snooze no longer wait for a full provider scan.
+Measured resource checks are required in addition to the unit suite before release.
 
 ChatGPT conversations now use exact IDs from OpenAI's recent-conversation list
 and the desktop app's local catalog, with reply-status requests directly to OpenAI. Codex windows no
@@ -28,9 +36,11 @@ failed or overdue checks and expired reset windows remain marked stale.
 Both providers use the same row sizing, including when one has an error.
 Claude project status observation times are kept separate from message times,
 so resuming work can clear an older attention state before a new reply appears.
-Idle project threads check their newest replies with a bounded read and verify
-the thread state again before reporting completion. Older system notices cannot
-hide a recent reply behind the history limit.
+Idle and resolved project threads check their newest replies with a bounded read
+and verify the thread state again before reporting completion. The verified
+assistant message owns the reply identity, so changing the thread state alone
+cannot resurface a reviewed reply. Cached reply verification expires after one
+minute. Older system notices cannot hide a recent reply behind the history limit.
 Ordinary Claude chats use verified account metadata for both web and desktop
 activity. The board follows exact conversation IDs while the browser is in the
 background or the desktop app is showing another chat. Completion requires a
@@ -186,8 +196,8 @@ account details, usage statistics or diagnostics to Spacely Digital. Board data,
 source-folder bookmarks, preferences and logs stay on the recipient’s Mac.
 The Store package excludes the prototype’s saved-credential, cloud-project and
 provider-command helpers. It reads selected local folders and authenticated
-loopback traffic. The bounded Codex index fallback uses an unnamed private
-local copy; see [PRIVACY.md](PRIVACY.md).
+loopback traffic. The bounded Codex index fallback uses a verified in-memory
+snapshot without temporary disk writes; see [PRIVACY.md](PRIVACY.md).
 
 Agent Board is free. The default Store support setting is hidden. The explicit
 US-only setting permits a bundled QR and fixed Ko-fi link only after the native

@@ -148,7 +148,7 @@ class Monitor:
             _UnselectedSource("codex") if not source_allowed["codex"] else
             CodexSource(codex_root, confine_paths=True, snapshot_parent=board_directory) if sandbox else CodexSource(codex_root),
             _UnselectedSource("claude") if not source_allowed["claude"] else
-            ClaudeSource(claude_root, desktop_root=Path(claude_desktop_root) / "claude-code-sessions",
+            ClaudeSource(claude_root, desktop_root=Path(claude_desktop_root),
                          desktop_scope_root=Path(claude_desktop_root),
                          allow_commands=False, confine_paths=True) if sandbox else ClaudeSource(claude_root)]
         self.interval = interval
@@ -170,7 +170,7 @@ class Monitor:
         # prevent the local conversation board from refreshing or being reviewed.
         self.usage_source = UsageSource() if not sandbox and usage_enabled and codex_root is None and claude_root is None else None
         self.usage_lock = threading.Lock()
-        self.local_claude_quota = ClaudeLocalQuota(claude_root) if sandbox and source_grants["claude"] else None
+        self.local_claude_quota = ClaudeLocalQuota(claude_root) if sandbox and not store_profile and source_grants["claude"] else None
         self.local_codex_usage = None
         self.local_codex_granted = sandbox and source_grants["codex"]
         self.usage = [{"id": provider, "name": name, "available": False, "stale": False,
@@ -328,13 +328,16 @@ class Monitor:
                         self.store.mark_unavailable(provider, "The source is unavailable. Its last working state is unconfirmed.", source_kind="local" if provider == "claude" else None)
                     else:
                         present_keys = set()
-                        for observation in observations:
+                        normalized_rows = [(observation, self.store.normalize(observation, now))
+                                           for observation in observations]
+                        saved_rows = self.store.get_many(normalized["key"] for _, normalized in normalized_rows
+                                                         if normalized is not None)
+                        for observation, normalized in normalized_rows:
                             checking = observation.get("history_checking") is True
                             if observation.get("metadata_only") is True and not checking:
                                 continue
-                            normalized = self.store.normalize(observation, now)
                             if normalized is not None:
-                                stored = self.store.get(normalized["key"])
+                                stored = saved_rows.get(normalized["key"])
                                 if (stored and normalized["updated_at"] < stored["updated_at"] and not checking
                                         and not (observation.get("confirmed_live") is True
                                                  and normalized["status"] == stored["status"])):
@@ -387,7 +390,8 @@ class Monitor:
         claude = (self.local_claude_quota.scan(now) if self.local_claude_quota else
                   {"id": "claude", "name": "Claude", "source": "local_export", "available": False,
                    "updated_at": None, "stale": False, "loading": False, "windows": [],
-                   "error": "Choose the Claude Sessions folder to read its local usage export."})
+                   "error": ("Not available in the App Store edition." if self.store_profile else
+                             "Choose the Claude Sessions folder to read its local usage export.")})
         with self.usage_lock:
             self.usage = [claude, codex]
 
@@ -509,7 +513,8 @@ class Monitor:
                         else "The source is unavailable. This is its last saved state."
                     ) if unavailable else ""
             snapshot.update({"sources": sources, "now": now, "last_scan": self.last_scan,
-                             "csrf_token": self.token, "poll_interval": self.interval, "sample_mode": self.sample_mode})
+                             "csrf_token": self.token, "poll_interval": self.interval, "sample_mode": self.sample_mode,
+                             "store_profile": self.store_profile})
             with self.usage_lock:
                 snapshot["usage"] = copy.deepcopy(self.usage)
             return snapshot
@@ -564,7 +569,16 @@ class BoardHTTPServer(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AgentBoard/1"
+    server_version = "AgentBoard"
+    sys_version = ""
+
+    def version_string(self):
+        return self.server_version
+
+    def do_OPTIONS(self):
+        if not self.valid_host():
+            return self.respond(403, {"error": "Use the local dashboard address."})
+        return self.respond(405, {"error": "This method is not supported."})
 
     def handle(self):
         self.connection.settimeout(self.server.request_timeout)
@@ -782,11 +796,10 @@ class Handler(BaseHTTPRequestHandler):
             provider, _, ident = key.partition(":")
             if provider in self.monitor.hidden_desktop_providers and ident.startswith(DESKTOP_CHAT_ID_PREFIX):
                 raise KeyError(key)
-            # Scan before acknowledging to prevent a stale card clearing a newly started turn.
+            # Storage compares the displayed event atomically. Provider scans
+            # run separately, so a slow source cannot hold a user's action open.
             if action == "review":
-                with self.monitor.lock:
-                    self.monitor.scan()
-                    self.monitor.store.review(key, body.get("event_id"))
+                self.monitor.store.review(key, body.get("event_id"))
             elif action == "restore":
                 self.monitor.store.restore(key)
             elif action == "rename":
@@ -794,9 +807,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action == "move":
                 self.monitor.store.move(key, body.get("placement"))
             elif action == "snooze":
-                with self.monitor.lock:
-                    self.monitor.scan()
-                    self.monitor.store.snooze(key, body.get("event_id"), body.get("minutes", 10))
+                self.monitor.store.snooze(key, body.get("event_id"), body.get("minutes", 10))
             elif action == "open":
                 if self.monitor.sample_mode:
                     return self.respond(409, {"error": "Sample chats cannot open a provider app."})
@@ -861,6 +872,9 @@ class NativeLaunchFiles:
         self.entries = {}
         self.path = None
         self.identity = None
+        self.launch_lock = None
+        self.launch_lock_name = None
+        self.launch_lock_identity = None
         if not parent_lifetime or not isinstance(instance_id, str) or not isinstance(token, str):
             return
         try:
@@ -886,16 +900,51 @@ class NativeLaunchFiles:
                 self.cleanup()
                 return
             self.entries[token_name] = captured[1]
-            manifest_name = ".source-bookmarks-" + instance_id + ".json"
-            if manifest_path is not None and Path(manifest_path) == path / manifest_name:
-                captured = self._read(manifest_name, 262_144)
-                if captured is not None and captured[1] == manifest_fingerprint:
-                    self.entries[manifest_name] = captured[1]
+            self._hold_launch_lock(instance_id)
+            self.capture_manifest(manifest_path, manifest_fingerprint)
         except (OSError, ValueError, TypeError, UnicodeError):
             # In particular, an invalid access-token read must not authorize
             # deletion of a similarly named source file or checkpoint.
             self.entries.clear()
             self.cleanup()
+
+    def _hold_launch_lock(self, instance_id):
+        import fcntl
+        name = ".collector-launch-" + instance_id + ".lock"
+        try:
+            descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                                 dir_fd=self.directory)
+        except FileNotFoundError:
+            return  # Older native launches have no marker; never sweep them.
+        try:
+            info = os.fstat(descriptor)
+            if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                    or info.st_uid != os.getuid() or info.st_nlink != 1 or info.st_size != 0):
+                raise ValueError("Invalid private launch marker.")
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            current = os.stat(name, dir_fd=self.directory, follow_symlinks=False)
+            if (current.st_dev, current.st_ino, current.st_mode, current.st_uid, current.st_nlink, current.st_size) != (
+                    info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink, info.st_size):
+                raise ValueError("Private launch marker changed.")
+            self.launch_lock, self.launch_lock_name = descriptor, name
+            self.launch_lock_identity = (info.st_dev, info.st_ino)
+            descriptor = None
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    def capture_manifest(self, manifest_path, fingerprint):
+        if self.directory is None or manifest_path is None:
+            return
+        token_names = [name for name in self.entries if name.startswith(".collector-access-")]
+        if len(token_names) != 1:
+            return
+        instance_id = token_names[0][len(".collector-access-"):]
+        name = ".source-bookmarks-" + instance_id + ".json"
+        if Path(manifest_path) == self.path / name:
+            captured = self._read(name, 262_144)
+            if captured is not None and captured[1] == fingerprint:
+                self.entries[name] = captured[1]
 
     def _read(self, name, limit):
         descriptor = None
@@ -942,6 +991,30 @@ class NativeLaunchFiles:
         except OSError:
             pass
         finally:
+            if self.launch_lock is not None:
+                try:
+                    import fcntl
+                    fcntl.flock(self.launch_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    current = self.path.lstat()
+                    captured = self._read(self.launch_lock_name, 0)
+                    instance_id = self.launch_lock_name[len(".collector-launch-"):-len(".lock")]
+                    names = (".collector-access-" + instance_id, ".source-bookmarks-" + instance_id + ".json")
+                    def absent(name):
+                        try:
+                            os.stat(name, dir_fd=self.directory, follow_symlinks=False)
+                            return False
+                        except FileNotFoundError:
+                            return True
+                    if (stat.S_ISDIR(current.st_mode) and (current.st_dev, current.st_ino) == self.identity
+                            and stat.S_IMODE(current.st_mode) == 0o700 and current.st_uid == os.getuid()
+                            and captured is not None and captured[1][:2] == self.launch_lock_identity
+                            and all(absent(name) for name in names)):
+                        os.unlink(self.launch_lock_name, dir_fd=self.directory)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    os.close(self.launch_lock)
+                    self.launch_lock = None
             os.close(self.directory)
             self.directory = None
             self.entries.clear()
@@ -1208,6 +1281,10 @@ def main():
     except (OSError, ValueError, UnicodeError):
         LOG.info("startup phase=access_file_failed")
         parser.exit(1, "The private display access file could not be read.\n")
+    # Retain the native launch's shared lock before a grant resolution can
+    # wait. Another launch may sweep only markers with no surviving holder.
+    launch_files = NativeLaunchFiles(args.data_dir, args.instance_id, args.access_token_file, access_token,
+                                    parent_lifetime=args.parent_lifetime_stdin)
     manifest_observation = {}
     source_grants = None
     if args.sandbox:
@@ -1226,9 +1303,12 @@ def main():
                                                      expected_roots=roots, support=args.data_dir.parent, observation=manifest_observation,
                                                      require_unselected=args.sample_mode)
         except (OSError, ValueError, TypeError):
+            launch_files.cleanup()
             LOG.info("startup phase=source_grants_failed")
             parser.exit(1, "The sandbox source grants could not be verified. Reopen Setup and Permissions.\n")
         LOG.info("startup phase=source_grants_verified")
+        launch_files.capture_manifest(os.environ.get("AGENT_BOARD_SOURCE_BOOKMARKS"),
+                                      manifest_observation.get("fingerprint"))
     monitor = None
     server = None
     workers = []
@@ -1244,10 +1324,6 @@ def main():
             threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop_server)
     signal.signal(signal.SIGINT, stop_server)
-    launch_files = NativeLaunchFiles(args.data_dir, args.instance_id, args.access_token_file, access_token,
-                                    os.environ.get("AGENT_BOARD_SOURCE_BOOKMARKS") if args.sandbox else None,
-                                    parent_lifetime=args.parent_lifetime_stdin,
-                                    manifest_fingerprint=manifest_observation.get("fingerprint"))
     try:
         if args.parent_lifetime_stdin:
             # Detect an already-dead owner before constructing source readers.
@@ -1321,7 +1397,18 @@ def main():
             for worker in workers:
                 worker.join(timeout=5)
         finally:
-            launch_files.cleanup()
+            try:
+                if monitor is not None:
+                    for source in monitor.sources:
+                        close = getattr(source, "close", None)
+                        if close is not None:
+                            try:
+                                close()
+                            except Exception:
+                                monitor._warn("Local source cleanup failed.")
+                    monitor.store.close()
+            finally:
+                launch_files.cleanup()
 
 
 if __name__ == "__main__":

@@ -153,6 +153,63 @@ do {
     let liveData = try folder("sample-support/data")
     try append(liveData)
     try check(try mode(liveData.appendingPathComponent("collector.log")) == 0o600 && mode(sampleData.appendingPathComponent("collector.log")) == 0o600, "live and Sample logs remain independently private")
+
+    let launches = try folder("launches")
+    func privateEntry(_ name: String, in directory: URL, text: String = "") throws -> URL {
+        let path = directory.appendingPathComponent(name)
+        try Data(text.utf8).write(to: path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+        return path
+    }
+    let liveID = UUID().uuidString
+    let lease = try NativeLaunchLease(in: launches, instance: liveID)
+    let liveMarker = launches.appendingPathComponent(".collector-launch-" + liveID + ".lock")
+    let liveToken = try privateEntry(".collector-access-" + liveID, in: launches, text: String(repeating: "a", count: 64))
+    let liveManifest = try privateEntry(".source-bookmarks-" + liveID + ".json", in: launches, text: "{}")
+    try check(try NativeLaunchLease.sweep(in: launches).isEmpty, "a second launch preserves the live owner's shared lock")
+    let childLock = open(liveMarker.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard childLock >= 0, flock(childLock, LOCK_SH | LOCK_NB) == 0 else { fatalError("fixture child lock") }
+    lease.finish()
+    try check(FileManager.default.fileExists(atPath: liveToken.path), "owner exit preserves secrets while its collector holds the lease")
+    try check(try NativeLaunchLease.sweep(in: launches).isEmpty, "collector lease independently prevents startup sweeping")
+    Darwin.close(childLock)
+    try check(try NativeLaunchLease.sweep(in: launches) == [liveID], "orphaned lock permits only its launch's cleanup")
+    try check(!FileManager.default.fileExists(atPath: liveToken.path)
+              && !FileManager.default.fileExists(atPath: liveManifest.path)
+              && !FileManager.default.fileExists(atPath: liveMarker.path), "orphan token, bookmark and marker are removed")
+    let legacy = try privateEntry(".collector-access-" + UUID().uuidString, in: launches, text: String(repeating: "b", count: 64))
+    let unrelated = try privateEntry("keep-this-file", in: launches, text: "Preserve the fixture.")
+    try check(try NativeLaunchLease.sweep(in: launches).isEmpty
+              && FileManager.default.fileExists(atPath: legacy.path)
+              && FileManager.default.fileExists(atPath: unrelated.path), "unmarked legacy and unrelated files are preserved")
+    for kind in ["symlink", "hardlink", "public", "directory"] {
+        let directory = try folder("launch-invalid-" + kind)
+        let id = UUID().uuidString
+        let marker = try privateEntry(".collector-launch-" + id + ".lock", in: directory)
+        let target = try privateEntry("private-canary", in: directory, text: "Preserve this content.")
+        let token = directory.appendingPathComponent(".collector-access-" + id)
+        if kind == "symlink" { try FileManager.default.createSymbolicLink(at: token, withDestinationURL: target) }
+        if kind == "hardlink" { try FileManager.default.linkItem(at: target, to: token) }
+        if kind == "public" { try Data("keep".utf8).write(to: token); try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: token.path) }
+        if kind == "directory" { try FileManager.default.createDirectory(at: token, withIntermediateDirectories: false) }
+        try check(try NativeLaunchLease.sweep(in: directory).isEmpty, "unsafe " + kind + " launch entry is not swept")
+        try check(FileManager.default.fileExists(atPath: token.path) && FileManager.default.fileExists(atPath: marker.path)
+                  && (try String(contentsOf: target, encoding: .utf8)) == "Preserve this content.", "unsafe " + kind + " preserves marker and target")
+    }
+    let raced = try folder("launch-created-marker-race")
+    let markerName = ".collector-launch-" + UUID().uuidString + ".lock"
+    let markerPath = try privateEntry(markerName, in: raced)
+    let directoryFD = open(raced.path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+    let markerFD = open(markerPath.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    guard directoryFD >= 0, markerFD >= 0 else { fatalError("fixture race descriptors") }
+    try check(NativeLaunchLease.markerMatchesDescriptor(markerFD, directory: directoryFD, name: markerName, path: raced), "new named marker validates before ownership")
+    try FileManager.default.removeItem(at: markerPath)
+    guard flock(markerFD, LOCK_SH | LOCK_NB) == 0 else { fatalError("fixture late shared lock") }
+    try check(!NativeLaunchLease.markerMatchesDescriptor(markerFD, directory: directoryFD, name: markerName, path: raced), "a sweep between create and lock cannot authorize an unlinked launch")
+    _ = try privateEntry(markerName, in: raced)
+    try check(!NativeLaunchLease.markerMatchesDescriptor(markerFD, directory: directoryFD, name: markerName, path: raced), "a replacement marker cannot inherit the removed descriptor's lock")
+    Darwin.close(markerFD); Darwin.close(directoryFD)
+
     try check(noOwnedDescriptors(), "normal and rejected log operations leave no owned file descriptors")
     let encoded = try JSONSerialization.data(withJSONObject: ["passed": true, "assertions": results.count, "results": results], options: [.prettyPrinted, .sortedKeys])
     try encoded.write(to: root.appendingPathComponent("RESULT.json"))
@@ -174,7 +231,7 @@ do {
     ran = subprocess.run([str(binary), str(qa)], capture_output=True, text=True, timeout=20)
     (qa / "run.stdout").write_text(ran.stdout)
     (qa / "run.stderr").write_text(ran.stderr)
-    provenance = {"runtime_sha256": hashlib.sha256(before).hexdigest(), "test_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "swift_fixture_sha256": hashlib.sha256(main_file.read_bytes()).hexdigest(), "compile_exit": compiled.returncode, "run_exit": ran.returncode, "source_unchanged": runtime.read_bytes() == before, "scope": "Actual production log helper and Sample storage selection with dummy files; no collector, GUI, provider/account/grant, key or networking."}
+    provenance = {"runtime_sha256": hashlib.sha256(before).hexdigest(), "test_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "swift_fixture_sha256": hashlib.sha256(main_file.read_bytes()).hexdigest(), "compile_exit": compiled.returncode, "run_exit": ran.returncode, "source_unchanged": runtime.read_bytes() == before, "scope": "Actual production log, launch-lock cleanup and Sample storage helpers with dummy files; no collector, GUI, provider/account/grant, key or networking."}
     if (qa / "RESULT.json").is_file():
         provenance["result_sha256"] = hashlib.sha256((qa / "RESULT.json").read_bytes()).hexdigest()
     if args.baseline:

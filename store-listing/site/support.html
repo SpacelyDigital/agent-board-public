@@ -9,14 +9,15 @@
   <link rel="stylesheet" href="site.css">
 </head>
 <body>
-  <nav aria-label="Site"><strong>Agent Board</strong><a href="privacy.html">Privacy</a><a href="support.html" aria-current="page">Support</a></nav>
+  <nav aria-label="Site"><strong>Agent Board</strong><a href="privacy.html">Store privacy</a><a href="direct-privacy.html">Direct-download privacy</a><a href="support.html" aria-current="page">Support</a></nav>
   <main>
     <h1>Support</h1>
-    <p>Agent Board reads local chat activity from the folders you select. It has no support upload, account registration or log-reporting service.</p>
+    <p>The App Store edition reads local coding chats from the folders you select. The direct-download edition also offers optional account connections. Neither edition uploads your chats or diagnostics to Spacely Digital.</p>
     <p>For help, email <a href="mailto:Spacelydigital@gmail.com">Spacelydigital@gmail.com</a>. The link opens your mail app. Agent Board does not send a message or attach chats, logs or other data automatically.</p>
     <details open>
       <summary>My chats do not appear.</summary>
-      <p>Open <strong>Agent Board → Setup and Permissions</strong> and select the source folders for the coding tools you use. An unselected or unavailable folder stays disconnected. Cloud-only chats are not included in the Store build.</p>
+      <p>In the App Store edition, open <strong>Agent Board → Setup and Permissions</strong> and select the source folders for Codex and Claude Code. For Claude Code in Desktop, choose <code>Library/Application Support/Claude/claude-code-sessions</code> in your home folder. Regular ChatGPT and Claude account chats are not included in this edition.</p>
+      <p>In the direct-download edition, check the monitoring choices in Setup and the source status shown on the board. Optional account connections require the corresponding provider's existing sign-in on this Mac. If access is unavailable, follow the reported instruction and confirm that the provider app is signed in. Unconfirmed activity remains unavailable.</p>
     </details>
     <details>
       <summary>A chat is checking history or has no confirmed status.</summary>
@@ -24,8 +25,8 @@
     </details>
     <details>
       <summary>I see an old usage reading or no usage figure.</summary>
-      <p>Usage is a local observation, not a live account connection. Codex must have reported a weekly window in its local session records. Claude requires the optional local usage plugin and a compatible version. A normal response in the provider app may update the reading. Agent Board never sends a prompt to refresh it or assumes that a passed reset means a new full allowance.</p>
-      <p>If you switch accounts, clear old exports before relying on a reading. The Claude plugin's local files are <code>agent-board/usage/quota-v1-a.json</code> and <code>quota-v1-b.json</code> below the Claude folder you selected.</p>
+      <p>The App Store edition shows Codex weekly usage only when a verified local session record contains it. Claude usage is not available in this edition, and no Claude plugin is included.</p>
+      <p>The direct-download edition can request usage through its optional account connections. Check Setup, the provider sign-in and any access or retry message on the board. The observation time and stale label indicate whether a reading is current. Agent Board never sends a prompt to refresh usage or assumes that a passed reset means a new full allowance.</p>
     </details>
     <details>
       <summary>Notifications are not appearing.</summary>
@@ -37,8 +38,7 @@
     </details>
     <details>
       <summary>I want to stop monitoring or remove local data.</summary>
-      <p>Forget the source folders in <strong>Setup and Permissions</strong> to stop reading them. Quit Agent Board to stop its collector. To remove the board's database and logs, first choose <strong>Open Local Data Folder</strong>, then quit the app and remove that folder. Your provider chats stay separate. Appearance settings and notification preferences are separate local stores.</p>
-      <p>If you installed the optional Claude exporter, disable or uninstall it in Claude and remove its two output files to clear its saved observations.</p>
+      <p>In the App Store edition, use <strong>Forget Source Folders</strong> in Setup to stop reading those folders. In the direct-download edition, disable optional account monitoring in Setup to stop those account requests. Quit either edition to stop its collector. To remove the board's database and logs, first choose <strong>Open Local Data Folder</strong>, then quit the app and remove that folder. Your provider chats stay separate. Appearance settings and notification preferences are separate local stores.</p>
     </details>
   </main>
   <footer>Agent Board does not need your chats, passwords or diagnostic files for these steps.</footer>

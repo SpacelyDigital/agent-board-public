@@ -36,7 +36,7 @@ are separate from the live board. Entering samples stops the live collector and
 releases active folder access; returning to live restores only saved consent.
 
 This is the reviewer demonstration path. Real source permissions, provider
-versions, chat handoff, the optional local Claude usage plugin, notifications
+versions, chat handoff, notifications
 and opening at login require separate real-environment evidence. Provide App
 Review the exact submitted build and its verified provider requirements, as
 requested by [Apple's review guidance](https://developer.apple.com/help/app-review/before-submitting-for-review/complete-review).
@@ -50,13 +50,20 @@ sqlite3 serialization support**, which a clean Mac may not include.
 
 Run it only in a disposable macOS user or VM with no existing provider roots.
 `python3 review_samples.py init` creates synthetic files in the current user's
-standard `.codex`, `.claude` and `Library/Application Support/Claude` folders.
+standard `.codex`, `.claude` and
+`Library/Application Support/Claude/claude-code-sessions` folders. It also owns
+the new `Library/Application Support/Claude` parent solely to verify that the
+fixture has not been mixed with real provider data.
 It refuses root/sudo and any existing root, including files or symlinks. There
 is no force, merge, alternate-home command-line option or cleanup command. Do
 not delete real data to make it run.
 
-On the live board, select those exact three folders in **Setup and Permissions**
-and choose **Save**. Advance the generated chats with these commands:
+On the live board, select the three exact paths reported by `init` in **Setup
+and Permissions**, then choose **Save** or **Start Monitoring**. For **Claude
+Code in Desktop**, select `Library/Application Support/Claude/claude-code-sessions`,
+not its parent. The picker requires the current account's home paths; a folder
+with the same basename elsewhere does not qualify. Advance the generated chats
+after monitoring starts with these commands:
 
 ```sh
 python3 review_samples.py cooking
@@ -71,7 +78,7 @@ attention flags after resuming Cooking. The Ready preview is “The synthetic
 review sample is ready.” Review one reply, quit and reopen to check persistence.
 `--provider codex` or `--provider claude` advances just one example. The initial
 quota readings are fabricated and become stale; lifecycle commands do not
-refresh them. The optional Claude plugin is not installed.
+refresh them. The Store edition does not include a Claude usage plugin.
 
 The tool appends only to its verified synthetic files and private control
 journal. Replaced, additional, edited or interrupted files cause it to stop.

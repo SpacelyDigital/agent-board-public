@@ -58,7 +58,7 @@ final class Defaults {
     func dictionary(forKey key: String) -> [String: Any]? { values[key] }
     func set(_ value: [String: String], forKey key: String) { values[key] = value }
 }
-final class Runtime { var sandboxed = true; var sampleMode = false; let accessToken = "disposable-token" }
+final class Runtime { var storeDistribution = true; var sandboxed = true; var sampleMode = false; let accessToken = "disposable-token" }
 final class Window {
     var appearance: NSAppearance?
     var styleMask: NSWindow.StyleMask = []
@@ -79,6 +79,8 @@ final class Model: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var opens = 0
     var setups = 0
     var fullscreenRequests = 0
+    var sampleRequests = 0
+    func setBoardMode(sample: Bool) { if sample { sampleRequests += 1 } }
     func openExistingChat(_ value: String, provider: String) { opens += 1 }
     func showSetup() { setups += 1 }
     func toggleFullscreen() { fullscreenRequests += 1 }
@@ -149,6 +151,7 @@ __METHODS__
                     window.addEventListener('agentboard:fullscreenchange', event => window.fullscreenTransitions.push(event.detail));
                     window.webkit.messageHandlers.agentBoard.postMessage('settings');
                     window.webkit.messageHandlers.agentBoard.postMessage('fullscreen');
+                    window.webkit.messageHandlers.agentBoard.postMessage('sampleBoard');
                     true;
                     """) { _ in
                     self.publishFullscreenState()
@@ -160,15 +163,17 @@ __METHODS__
                         check(result as? String == "[false,true,false]", "native window state reaches WebKit as booleans")
                         check(self.fullscreenRequests == 1, "board fullscreen request reaches native window")
                         check(self.setups == 1, "board settings request reaches native setup")
+                        check(self.sampleRequests == 1, "empty-board sample request reaches Store mode action")
                         self.stage = 5
                         self.webView.load(URLRequest(url: self.boardURL.appendingPathComponent("untrusted")))
                     }
                 }
             }
         default:
-            value("window.webkit.messageHandlers.agentBoard.postMessage('settings'); true") { _ in
+            value("window.webkit.messageHandlers.agentBoard.postMessage('settings'); window.webkit.messageHandlers.agentBoard.postMessage('sampleBoard'); true") { _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                     check(self.setups == 1, "settings is rejected outside the board path on the same origin")
+                    check(self.sampleRequests == 1, "sample request is rejected outside the board root")
                     print("PASS: native WebKit preference isolation, saved-mode restore, stale-generation rejection, and toolbar bridge")
                     self.webView.configuration.userContentController.removeScriptMessageHandler(forName: "agentBoard")
                     exit(0)

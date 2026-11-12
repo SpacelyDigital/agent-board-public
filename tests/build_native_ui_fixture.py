@@ -32,7 +32,7 @@ def main():
     allowed = ROOT / ".local/app-store-local-hardening"
     if not fixture.is_relative_to(allowed) or fixture == allowed:
         parser.error("The home must be inside the disposable App Store validation fixture area.")
-    for relative in (".codex", ".claude", "Library/Application Support/Claude"):
+    for relative in (".codex", ".claude", "Library/Application Support/Claude/claude-code-sessions"):
         path = fixture / relative
         if path.is_symlink() or not path.is_dir():
             parser.error("All three synthetic source directories must already exist.")

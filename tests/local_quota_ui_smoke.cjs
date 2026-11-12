@@ -17,8 +17,9 @@ async function main() {
   const at = Date.now() / 1000;
   let usage = [];
   let sampleMode = false;
+  let storeProfile = false;
   const state = () => ({now: at, csrf_token: 'disposable-csrf', sessions: [], history: [],
-    background: [], sources: [], counts: {cooking: 0, needs_you: 0, ready: 0, disconnected: 0}, usage, sample_mode: sampleMode});
+    background: [], sources: [], counts: {cooking: 0, needs_you: 0, ready: 0, disconnected: 0}, usage, sample_mode: sampleMode, store_profile: storeProfile});
   const server = http.createServer((request, response) => {
     const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
     if (pathname === '/api/state') {
@@ -69,7 +70,9 @@ async function main() {
     const claudeNote = page.locator('#usage-claude-note');
     const codexNote = page.locator('#usage-codex-note');
     const codex = (credits) => provider('codex', [], {credits});
+    let phases = 0;
     const phase = async next => {
+      phases += 1;
       usage = next;
       const response = page.waitForResponse(response => response.url() === base + '/api/state');
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
@@ -150,6 +153,12 @@ async function main() {
     await claudeNote.waitFor({state: 'hidden'});
     await checkAlignment('recovered and healthy');
 
+    storeProfile = true;
+    await phase([provider('claude', [], {error: 'Not available in the App Store edition.'}), healthy]);
+    await weekly.locator('.usage-value').filter({hasText: 'Unavailable'}).waitFor();
+    assert.equal(await weekly.getAttribute('title'), 'Not available in the App Store edition.');
+    assert.equal(await page.locator('#usage').getAttribute('aria-label'), 'Local usage');
+
     sampleMode = true;
     await phase([provider('claude', [], {credits: {amount: 25, unit: 'USD'}}),
       codex({amount: 240, unit: 'credits'})]);
@@ -166,11 +175,11 @@ async function main() {
     }
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);
-    const result = {passed: true, phases: 10, engine: 'WebKit', provider_calls: 0, alignment_checks: alignmentChecks,
+    const result = {passed: true, phases, engine: 'WebKit', provider_calls: 0, alignment_checks: alignmentChecks,
       five_hour_hidden: true, weekly_reset_retained: true, zero_and_negative_balances: true,
       missing_balances_link_to_provider: true, stale_balance_retains_age: true, samples_labelled: true,
       all_usage_numbers_rounded: true, keychain_recovery_visible: true, disabled_claude_credits_explicit: true,
-      rate_limit_and_retry_visible_once: true, healthy_note_hidden: true};
+      rate_limit_and_retry_visible_once: true, healthy_note_hidden: true, store_local_usage_disclosure: true};
     if (process.argv[2]) fs.writeFileSync(process.argv[2], JSON.stringify(result, null, 2) + '\n');
     console.log(JSON.stringify(result));
   } finally {

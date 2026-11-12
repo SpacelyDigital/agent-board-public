@@ -11,6 +11,141 @@ final class LocalSessionDelegate: NSObject, URLSessionTaskDelegate {
     }
 }
 
+/// A launch marker is locked by both owner and collector. Only an orphaned
+/// marker grants startup cleanup rights; older unmarked launches are preserved.
+final class NativeLaunchLease {
+    private let path: URL
+    private var directory: Int32
+    private var descriptor: Int32
+    private let identity: (dev_t, ino_t)
+    private let name: String
+    private let instance: String
+
+    private static func privateFile(_ value: stat, limit: Int64) -> Bool {
+        value.st_mode & S_IFMT == S_IFREG && value.st_mode & 0o7777 == 0o600
+            && value.st_uid == getuid() && value.st_nlink == 1
+            && value.st_size >= 0 && value.st_size <= limit
+    }
+
+    private static func sameFile(_ left: stat, _ right: stat) -> Bool {
+        left.st_dev == right.st_dev && left.st_ino == right.st_ino
+            && left.st_size == right.st_size && left.st_mode == right.st_mode
+            && left.st_uid == right.st_uid && left.st_nlink == right.st_nlink
+            && left.st_mtimespec.tv_sec == right.st_mtimespec.tv_sec
+            && left.st_mtimespec.tv_nsec == right.st_mtimespec.tv_nsec
+            && left.st_ctimespec.tv_sec == right.st_ctimespec.tv_sec
+            && left.st_ctimespec.tv_nsec == right.st_ctimespec.tv_nsec
+    }
+
+    private static func sameDirectory(_ descriptor: Int32, path: URL) -> Bool {
+        var opened = stat(), current = stat()
+        return fstat(descriptor, &opened) == 0 && lstat(path.path, &current) == 0
+            && current.st_mode & S_IFMT == S_IFDIR && current.st_mode & 0o7777 == 0o700
+            && current.st_uid == getuid() && current.st_dev == opened.st_dev && current.st_ino == opened.st_ino
+    }
+
+    private static func removePrivate(_ name: String, directory: Int32, path: URL, limit: Int64) -> Bool {
+        guard sameDirectory(directory, path: path) else { return false }
+        let file = openat(directory, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        if file < 0 { return errno == ENOENT }
+        defer { Darwin.close(file) }
+        var opened = stat(), current = stat()
+        guard fstat(file, &opened) == 0, privateFile(opened, limit: limit),
+              fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
+              sameFile(opened, current), sameDirectory(directory, path: path) else { return false }
+        return unlinkat(directory, name, 0) == 0
+    }
+
+    private static func instance(from name: String) -> String? {
+        let prefix = ".collector-launch-", suffix = ".lock"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+        let value = String(name.dropFirst(prefix.count).dropLast(suffix.count))
+        guard let uuid = UUID(uuidString: value), uuid.uuidString.lowercased() == value.lowercased() else { return nil }
+        return value
+    }
+
+    static func markerMatchesDescriptor(_ descriptor: Int32, directory: Int32, name: String, path: URL) -> Bool {
+        var opened = stat(), current = stat()
+        return instance(from: name) != nil && sameDirectory(directory, path: path)
+            && fstat(descriptor, &opened) == 0 && privateFile(opened, limit: 0)
+            && fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) == 0 && sameFile(opened, current)
+    }
+
+    @discardableResult
+    static func sweep(in path: URL) throws -> [String] {
+        let directory = open(path.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard directory >= 0 else { throw CollectorRuntime.RuntimeError.unavailable }
+        defer { Darwin.close(directory) }
+        guard sameDirectory(directory, path: path) else { throw CollectorRuntime.RuntimeError.unavailable }
+        var removed: [String] = []
+        for name in try FileManager.default.contentsOfDirectory(atPath: path.path) {
+            guard let instance = instance(from: name), sameDirectory(directory, path: path) else { continue }
+            let lock = openat(directory, name, O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+            guard lock >= 0 else { continue }
+            defer { Darwin.close(lock) }
+            var opened = stat(), current = stat()
+            guard fstat(lock, &opened) == 0, privateFile(opened, limit: 0),
+                  flock(lock, LOCK_EX | LOCK_NB) == 0,
+                  fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
+                  sameFile(opened, current), sameDirectory(directory, path: path) else { continue }
+            let token = removePrivate(".collector-access-" + instance, directory: directory, path: path, limit: 128)
+            let manifest = removePrivate(".source-bookmarks-" + instance + ".json", directory: directory, path: path, limit: 262_144)
+            // Preserve the marker when any associated entry was substituted or
+            // shared. Do not turn an uncertain leftover into an unmarked file.
+            if token && manifest && removePrivate(name, directory: directory, path: path, limit: 0) {
+                removed.append(instance)
+            }
+        }
+        return removed
+    }
+
+    init(in path: URL, instance: String) throws {
+        guard UUID(uuidString: instance)?.uuidString.lowercased() == instance.lowercased() else {
+            throw CollectorRuntime.RuntimeError.unavailable
+        }
+        self.path = path
+        self.instance = instance
+        name = ".collector-launch-" + instance + ".lock"
+        directory = open(path.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        descriptor = -1
+        var info = stat()
+        guard directory >= 0, Self.sameDirectory(directory, path: path), fstat(directory, &info) == 0 else {
+            if directory >= 0 { Darwin.close(directory) }
+            directory = -1
+            throw CollectorRuntime.RuntimeError.unavailable
+        }
+        identity = (info.st_dev, info.st_ino)
+        descriptor = openat(directory, name, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0o600)
+        guard descriptor >= 0, fchmod(descriptor, 0o600) == 0,
+              flock(descriptor, LOCK_SH | LOCK_NB) == 0,
+              // A simultaneous startup sweep may have removed this just-created
+              // marker before the shared lock was acquired. Never launch using
+              // a lock on an unlinked or substituted inode.
+              Self.markerMatchesDescriptor(descriptor, directory: directory, name: name, path: path) else {
+            if descriptor >= 0 { Darwin.close(descriptor) }
+            Darwin.close(directory)
+            descriptor = -1; directory = -1
+            throw CollectorRuntime.RuntimeError.unavailable
+        }
+    }
+
+    func finish() {
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor); Darwin.close(directory); descriptor = -1; directory = -1 }
+        guard Self.sameDirectory(directory, path: path), flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return }
+        var current = stat(), opened = stat(), parent = stat()
+        guard fstat(directory, &parent) == 0, (parent.st_dev, parent.st_ino) == identity,
+              fstat(descriptor, &opened) == 0,
+              fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) == 0,
+              Self.privateFile(opened, limit: 0), Self.sameFile(opened, current) else { return }
+        let token = Self.removePrivate(".collector-access-" + instance, directory: directory, path: path, limit: 128)
+        let manifest = Self.removePrivate(".source-bookmarks-" + instance + ".json", directory: directory, path: path, limit: 262_144)
+        if token && manifest { _ = Self.removePrivate(name, directory: directory, path: path, limit: 0) }
+    }
+
+    deinit { finish() }
+}
+
 /// Owns the bundled collector. Closing the window keeps the app and collector
 /// alive; quitting the app stops only the child started by this instance.
 final class CollectorRuntime {
@@ -85,6 +220,7 @@ final class CollectorRuntime {
     private(set) var accessToken = ""
     private var accessTokenFile: URL?
     private var sourceManifestFile: URL?
+    private var launchLease: NativeLaunchLease?
     var usageEnabled = false
     var projectsEnabled = false
     var claudeChatsEnabled = false
@@ -243,6 +379,9 @@ final class CollectorRuntime {
         for provider in ["codex", "claude", "claude_desktop"] {
             if !sampleMode, let granted = grantedSourceURLs[provider] {
                 let url = granted.resolvingSymlinksInPath().standardizedFileURL
+                guard provider != "claude_desktop" || url.lastPathComponent == "claude-code-sessions" else {
+                    throw RuntimeError.legacy("Choose the Claude Code sessions folder in Setup and Permissions. The previous Claude app folder permission is no longer used.")
+                }
                 // A transferable bookmark is distinct from the persistent
                 // app-scoped bookmark. The child consumes this grant itself.
                 let transfer = try granted.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
@@ -368,6 +507,8 @@ final class CollectorRuntime {
             child.standardInput = lifetime.fileHandleForReading
             port = portProvider?() ?? availablePort()
             instanceID = UUID().uuidString
+            try NativeLaunchLease.sweep(in: data)
+            launchLease = try NativeLaunchLease(in: data, instance: instanceID)
             child.executableURL = executable
             accessToken = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()
             let tokenFile = data.appendingPathComponent(".collector-access-\(instanceID)")
@@ -581,10 +722,10 @@ final class CollectorRuntime {
         }
         process = nil
         ownedGroup = nil
-        if let tokenFile = accessTokenFile { try? FileManager.default.removeItem(at: tokenFile) }
         accessTokenFile = nil
-        if let manifest = sourceManifestFile { try? FileManager.default.removeItem(at: manifest) }
         sourceManifestFile = nil
+        launchLease?.finish()
+        launchLease = nil
         try? logHandle?.close()
         logHandle = nil
     }

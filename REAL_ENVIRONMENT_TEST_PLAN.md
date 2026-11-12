@@ -333,3 +333,9 @@ A private beta on a few consenting testers' own machines should follow the real
 pass. The app must not automatically send their logs or chats back. Any report
 is a deliberate, redacted communication they choose to send. No App Store
 upload, public release or tester outreach is performed by this plan.
+
+## Disk-write release gate
+
+Use process-level `proc_pid_rusage` disk-write counters for the actual final collector. Run a disposable 200-session idle fixture for 120 seconds and require less than 10 KiB/s after warmup. Confirm repeated unchanged observations do not add SQLite changes or WAL bytes. In the sandbox, confirm a cleanly closed Codex index is loaded into a verified in-memory snapshot once and reused across 30 unchanged scans without snapshot disk writes, with invalidation on database or WAL changes.
+
+Measure one hour of normal use below 50 MiB written with Codex open, then repeat with Codex closed. Record process identity, uptime, elapsed time, read/write deltas and source-health failures. Check macOS DiagnosticReports after 24 hours for new collector disk-write reports. A short fixture pass does not complete these live gates. Preserve the previous installed app and a consistent board backup before replacement.

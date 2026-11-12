@@ -51,6 +51,8 @@ class AppConfiguration:
     team_id: str | None = None
     provisioning_profile: Path | None = None
     store_support_strategy: str = "hidden"
+    uses_non_exempt_encryption: bool | None = None
+    encryption_compliance_code: str | None = None
 
     def __post_init__(self):
         if (not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,}", self.bundle_id)
@@ -66,6 +68,13 @@ class AppConfiguration:
             raise ValueError("Unknown Store support strategy.")
         if not self.signing_channel.startswith("store-") and self.store_support_strategy != "hidden":
             raise ValueError("The US external support strategy requires a Store build.")
+        if self.uses_non_exempt_encryption is not None and type(self.uses_non_exempt_encryption) is not bool:
+            raise ValueError("The encryption answer must be an explicit boolean.")
+        if self.encryption_compliance_code is not None and (
+                not isinstance(self.encryption_compliance_code, str)
+                or not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", self.encryption_compliance_code)
+                or self.uses_non_exempt_encryption is not True):
+            raise ValueError("An Apple compliance code requires a non-exempt encryption declaration.")
         if self.signing_channel == "store-distribution":
             if not self.team_id or not re.fullmatch(r"[A-Z0-9]{10}", self.team_id):
                 raise ValueError("Store distribution requires an explicit signing team.")
@@ -75,6 +84,17 @@ class AppConfiguration:
     @property
     def helper_id(self):
         return self.bundle_id + ".collector"
+
+    def encryption_metadata(self):
+        """Use the owner's explicit classification; never infer a legal answer."""
+        if self.signing_channel == "store-distribution" and self.uses_non_exempt_encryption is None:
+            raise ValueError("Store distribution requires an explicit owner-approved encryption answer.")
+        if not self.signing_channel.startswith("store-") or self.uses_non_exempt_encryption is None:
+            return {}
+        result = {"ITSAppUsesNonExemptEncryption": self.uses_non_exempt_encryption}
+        if self.encryption_compliance_code:
+            result["ITSEncryptionExportComplianceCode"] = self.encryption_compliance_code
+        return result
 
 
 def codesign_command(identity, channel="direct"):
@@ -132,6 +152,7 @@ def runtime_asset_mapping(*, store_profile=False, support_strategy="hidden"):
     mapping = {relative: relative for relative in RUNTIME_FILES if relative.startswith(("static/", "integrations/"))
                and relative != "static/about/store.html"}
     if store_profile:
+        mapping = {target: source for target, source in mapping.items() if not target.startswith("integrations/")}
         if support_strategy == "hidden":
             mapping.pop("static/about/ko-fi.svg", None)
         mapping.pop("static/about/ko-fi.png", None)
@@ -274,7 +295,6 @@ def build_collector(signing_identity=None, *, sandboxed=False, build_root=None, 
                "--name", "agent-board-collector", "--distpath", str(output / "frozen"),
                "--workpath", str(output / "pyinstaller"), "--specpath", str(output),
                "--add-data", str(assets / "static") + os.pathsep + "static",
-               "--add-data", str(assets / "integrations") + os.pathsep + "integrations",
                "--hidden-import", "ctypes", "--hidden-import", "sqlite3", "--hidden-import", "sandbox_sources",
                "--hidden-import", "local_quota",
                "--osx-bundle-identifier",
@@ -283,6 +303,7 @@ def build_collector(signing_identity=None, *, sandboxed=False, build_root=None, 
         for module in STORE_EXCLUDED_MODULES:
             command.extend(["--exclude-module", module])
     else:
+        command.extend(["--add-data", str(assets / "integrations") + os.pathsep + "integrations"])
         command.extend(["--hidden-import", "usage_source", "--hidden-import", "claude_project_source",
                         "--hidden-import", "claude_chat_source",
                         "--hidden-import", "chatgpt_reply_source",

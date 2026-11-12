@@ -19,10 +19,11 @@ class SandboxGrantHealthTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         for name in ("codex", "claude", "desktop"):
             (self.root / name).mkdir()
+        (self.root / "desktop/claude-code-sessions").mkdir()
 
     def monitor(self, grants):
         return Monitor(self.root / "data", self.root / "codex", self.root / "claude",
-                       claude_desktop_root=self.root / "desktop", sandbox=True, source_grants=grants)
+                       claude_desktop_root=self.root / "desktop/claude-code-sessions", sandbox=True, source_grants=grants)
 
     def test_unselected_existing_directories_do_not_construct_or_scan_readers(self):
         grants = dict.fromkeys(("codex", "claude", "claude_desktop"), False)
@@ -63,6 +64,8 @@ class SandboxGrantHealthTests(unittest.TestCase):
 
     def test_both_claude_grants_allow_normal_scan_and_health(self):
         monitor = self.monitor({"codex": False, "claude": True, "claude_desktop": True})
+        self.assertEqual(monitor.sources[1].desktop_root, self.root / "desktop/claude-code-sessions")
+        self.assertEqual(monitor.sources[1].desktop_scope_root, monitor.sources[1].desktop_root)
         with patch.object(monitor.sources[1], "scan", return_value=([], {"available": True})) as scan:
             monitor.scan()
         scan.assert_called_once()

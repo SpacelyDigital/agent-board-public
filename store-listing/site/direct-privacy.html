@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Agent Board direct-download privacy</title>
+  <link rel="stylesheet" href="site.css">
+</head>
+<body>
+  <nav aria-label="Site"><strong>Agent Board</strong><a href="privacy.html">Privacy</a><a href="support.html">Support</a><a href="direct-privacy.html" aria-current="page">Direct-download privacy</a></nav>
+  <main>
+    <h1>Direct-download privacy</h1>
+    <p>This policy covers the Agent Board app distributed directly through GitHub. The Mac App Store edition has a separate policy and excludes the account features described here.</p>
+    <h2>Local board data</h2>
+    <p>Agent Board reads existing local session metadata and records to show chat titles, project paths, identifiers, timestamps, status and short reply or permission previews. It stores these fields and your review, snooze, naming and display choices on this Mac. It does not copy complete local transcripts or tool output into its board database. Local recovery backups can contain the same saved board fields.</p>
+    <p>There is no Agent Board account, analytics, advertising, crash uploader or developer-operated server. Chats, account details, usage statistics and diagnostics are not sent to Spacely Digital. The board is served only on this Mac at 127.0.0.1.</p>
+    <h2>Optional account connections</h2>
+    <p>Account monitoring uses the corresponding provider app's existing saved sign-in on this Mac. These features contact provider services even though the board stays local. They are optional, and disabling them stops their account polling. Agent Board does not submit prompts, run model turns, renew credentials or initiate sign-in.</p>
+    <p>Claude usage and project reads contact api.anthropic.com. Regular Claude chat metadata comes from claude.ai. The reader accesses Claude Desktop's saved session-cookie database and local account cache. It uses the named Claude Safe Storage Keychain item to decrypt the existing credential in memory. Background reads do not open Keychain permission prompts. It does not read cookie stores from unrelated web browsers.</p>
+    <p>Codex usage is requested through the installed Codex app-server account interface; Codex handles its provider connection. Regular ChatGPT monitoring reads the existing OpenAI sign-in and makes bounded requests to chatgpt.com for conversation metadata and reply status. A latest-reply response can include message content; Agent Board retains only the identifiers, timestamps and completion state it needs, then discards the response.</p>
+    <p>Authenticated provider requests use fixed origins and validated TLS, reject redirects and ignore proxy configuration. Credentials are used in memory for provider authentication and are not saved or logged by Agent Board or sent to Spacely Digital. Local checkpoints retain account identity and conversation-tracking state so replies and reviews survive restarts. Provider interfaces and permissions can change, causing unavailable status.</p>
+    <h2>Your controls</h2>
+    <p>Use Setup and Permissions to change monitoring choices. Notifications and Open at Login are optional. Quit stops the collector. Open Local Data Folder shows the local board data; quit before removing that folder. Provider chats and system notification settings are separate.</p>
+    <h2>Support</h2>
+    <p>The support email link opens your mail app without sending or attaching anything automatically. If you send an email to Spacelydigital@gmail.com, Spacely Digital receives your address, message and any attachments you choose. The optional support link opens Ko-fi without chat, account or usage parameters. Ko-fi handles the visit and payment under its own policy and may share supporter contact and transaction details with Spacely Digital. No purchase unlocks features.</p>
+    <p>The public privacy and support pages are hosted on GitHub Pages. GitHub records visitors' IP addresses for security, including visitors who are not signed in. Agent Board does not load those pages during monitoring or attach chat data to their links. OpenAI and Anthropic operate their own services under their own terms and privacy policies.</p>
+  </main>
+  <footer>Updated November 12, 2026. Agent Board is independent of OpenAI and Anthropic.</footer>
+</body>
+</html>

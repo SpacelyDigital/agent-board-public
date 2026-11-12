@@ -90,6 +90,9 @@ class StoreRedTeamTests(unittest.TestCase):
             with self.subTest(failure_number=failure_number):
                 store = BoardStore(self.path)
                 store.apply([self.observation()])
+                # Model a stopped damaged database, rather than overwriting
+                # SQLite's live memory-mapped WAL beneath an open connection.
+                store._close_connection()
                 originals = {self.path: self.path.read_bytes()}
                 for suffix in ("-wal", "-shm"):
                     path = Path(str(self.path) + suffix)

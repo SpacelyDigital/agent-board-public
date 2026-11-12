@@ -25,6 +25,7 @@ import uuid
 
 
 ROOTS = (".codex", ".claude", "Library/Application Support/Claude")
+GRANT_ROOTS = (".codex", ".claude", "Library/Application Support/Claude/claude-code-sessions")
 CONTROL = ".agent-board-review-samples.jsonl"
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_CONTROL_BYTES = 256 * 1024
@@ -314,7 +315,7 @@ def initialize(home, *, now=None):
         roots = {relative: [access.probe(relative).st_dev, access.probe(relative).st_ino] for relative in ROOTS}
         record = {"phase": "initialized", "roots": roots, "files": files, "state": state, "last_stamp": stamp}
         access.append(CONTROL, _json(record) + b"\n", marker, MAX_CONTROL_BYTES)
-        return {"synthetic": True, "home": str(access.path), "folders": [str(access.path / root) for root in ROOTS],
+        return {"synthetic": True, "home": str(access.path), "folders": [str(access.path / root) for root in GRANT_ROOTS],
                 "state": state, "provider_requests": 0, "note": "Only synthetic samples were created. No real chat links exist."}
 
 

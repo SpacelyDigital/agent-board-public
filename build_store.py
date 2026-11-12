@@ -150,7 +150,7 @@ def validate_store_asset_exclusions(app, support_strategy="hidden"):
     if support_strategy not in {"hidden", "us-external"}:
         raise ValueError("Unknown Store support strategy.")
     excluded = ("static/about/ko-fi.svg", "static/about/ko-fi.png", "static/about/store.html",
-                "static/icons/claude.svg", "static/icons/codex.svg")
+                "static/icons/claude.svg", "static/icons/codex.svg", "integrations")
     for contents in (app / "Contents", app / HELPER / "Contents"):
         for directory in ("Resources", "Frameworks"):
             for relative in excluded:
@@ -220,7 +220,14 @@ def validate_no_quarantine(path):
     return inspected
 
 
+def validate_store_fixture_exclusion(app):
+    executable = app / "Contents/MacOS/AgentBoard"
+    if executable.is_symlink() or not executable.is_file() or b"--board-url" in executable.read_bytes():
+        raise ValueError("Developer fixture mode must not ship in the Store executable.")
+
+
 def validate_store_bundle(app, configuration, profile=None):
+    encryption = configuration.encryption_metadata()
     validate_no_quarantine(app)
     validate_recipient_readability(app)
     checked(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
@@ -233,6 +240,9 @@ def validate_store_bundle(app, configuration, profile=None):
                 "LSApplicationCategoryType": "public.app-category.developer-tools"}
     if any(info.get(key) != value for key, value in expected.items()):
         raise ValueError("The app metadata does not match the requested Store configuration.")
+    if any(type(info.get(key)) is not type(value) or info.get(key) != value for key, value in encryption.items()):
+        raise ValueError("The app encryption declaration differs from the owner's explicit answer.")
+    validate_store_fixture_exclusion(app)
     if info.get("CFBundleIconFile") != "AgentBoard.icns":
         raise ValueError("The native icon name is invalid.")
     icon = app / "Contents/Resources/AgentBoard.icns"
@@ -388,6 +398,9 @@ def parse_arguments(argv=None):
     provisioning.add_argument("--profile-free", action="store_true",
                               help="Use only the reviewed unrestricted sandbox capabilities, without a profile. Not a TestFlight build.")
     parser.add_argument("--support-strategy", choices=["hidden", "us-external"], help="Hidden support by default; us-external permits optional support only after native US storefront checks.")
+    parser.add_argument("--uses-non-exempt-encryption", choices=["yes", "no"],
+                        help="Owner-approved export classification, required for distribution. No answer is inferred.")
+    parser.add_argument("--encryption-compliance-code", help="Apple-issued export compliance code, if required.")
     args = parser.parse_args(argv)
     signing = [args.app_signing_identity, args.installer_signing_identity, args.team_id, args.provisioning_profile]
     if args.preview and (any(signing) or args.profile_free):
@@ -401,11 +414,16 @@ def parse_arguments(argv=None):
             parser.error("Use a Mac Installer Distribution identity, not Developer ID Installer.")
         if args.support_strategy not in {"hidden", "us-external"}:
             parser.error("Distribution requires an explicit --support-strategy hidden or us-external.")
+        if args.uses_non_exempt_encryption is None:
+            parser.error("Distribution requires an owner-approved --uses-non-exempt-encryption yes or no answer.")
     try:
         configuration = AppConfiguration(args.bundle_id, args.version, args.build_number,
                                          signing_channel="store-distribution" if args.distribution else "store-preview",
                                          team_id=args.team_id, provisioning_profile=args.provisioning_profile,
-                                         store_support_strategy=args.support_strategy or "hidden")
+                                         store_support_strategy=args.support_strategy or "hidden",
+                                         uses_non_exempt_encryption=(None if args.uses_non_exempt_encryption is None else
+                                                                    args.uses_non_exempt_encryption == "yes"),
+                                         encryption_compliance_code=args.encryption_compliance_code)
     except ValueError as error:
         parser.error(str(error))
     output = args.output.absolute()

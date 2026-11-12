@@ -22,18 +22,18 @@ def method(source, name):
     return source[start.start():start.end() + end.start()].rstrip()
 
 
-def compile_and_run(directory, program, *, runtime=False):
+def compile_and_run(directory, program, *, runtime=False, compiler_flags=(), arguments=()):
     directory.mkdir()
     source = directory / "main.swift"
     source.write_text(program)
     binary = directory / "native-smoke"
-    command = ["/usr/bin/swiftc", "-module-cache-path", str(directory / "swift-cache"),
+    command = ["/usr/bin/swiftc", *compiler_flags, "-module-cache-path", str(directory / "swift-cache"),
                str(source)]
     if runtime:
         command.append(str(ROOT / "CollectorRuntime.swift"))
     command += ["-o", str(binary)]
     subprocess.run(command, check=True)
-    subprocess.run([str(binary)], check=True, timeout=20)
+    subprocess.run([str(binary), *arguments], check=True, timeout=20)
 
 
 def main():
@@ -41,7 +41,7 @@ def main():
     login = source[source.index("protocol AgentBoardLoginService"):source.index("struct AttentionChat")]
     ledgers = source[source.index("    var sampleModeSelected:"):source.index("    var notificationsEnabled:")]
     methods = "\n\n".join(method(source, name) for name in ("invalidateStateRequests", "setBoardMode", "startCollector", "poll"))
-    usage = method(source, "connectClaudeUsage").replace("NSAlert()", "UsageAlert()")
+    usage = method(source, "connectClaudeUsage").split("\n    #endif", 1)[0].replace("NSAlert()", "UsageAlert()")
     usage = usage.replace("NSPasteboard.general", "UsagePasteboard.general").replace("NSWorkspace.shared", "UsageWorkspace.shared")
     setup = method(source, "showSetup")
     buttons = setup[setup.index("        let alert = NSAlert()"):setup.index("        let content = NSStackView()")]
@@ -205,6 +205,8 @@ final class Runtime {
     var sandboxed = true
     var usageEnabled = false
     var projectsEnabled = false
+    var claudeChatsEnabled = false
+    var chatGPTChatsEnabled = false
     var grantedSourceURLs: [String: Scope] = [:]
     var preferredPort = 0
     var rejectSample = false
@@ -445,6 +447,61 @@ while !finished && Date() < deadline { RunLoop.main.run(until: Date().addingTime
 check(finished, "owned child stop completion arrived")
 print("PASS: production runtime mode capability/storage guards and exact owned-child stop/reap")
 '''
+    grant_properties = source[source.index("    private var sourceBookmarkKeys:"):
+                              source.index("    private var sourceHome:")]
+    grants = r'''import Foundation
+func check(_ value: @autoclosure () -> Bool, _ label: String) {
+    if !value() { print("FAIL: " + label); exit(1) }
+}
+final class Preferences {
+    var values: [String: Data] = [:]
+    func data(forKey key: String) -> Data? { values[key] }
+    func set(_ value: Data, forKey key: String) { values[key] = value }
+}
+final class Grants {
+    var sampleModeSelected = false
+    let defaults = Preferences()
+    let sourceHome = URL(fileURLWithPath: "__HOME__", isDirectory: true)
+    var sourceURLs: [String: URL] = [:]
+    var accessURLs: [URL] = []
+__PROPERTIES__
+__RESTORE__
+    var keys: [String] { sourceBookmarkKeys.map { $0.key } }
+    var needsReselection: Bool { claudeDesktopNeedsReselection }
+    func accepts(_ value: URL) -> Bool { validSourceGrant(value, provider: "claude_desktop") }
+}
+let model = Grants()
+let legacy = Data("a legacy broad grant must never be resolved".utf8)
+model.defaults.values["claudeSourceBookmark"] = legacy
+model.restoreSourceAccess()
+check(model.sourceURLs.isEmpty && model.accessURLs.isEmpty, "legacy parent bookmark cannot restore any source grant")
+check(model.needsReselection && !model.keys.contains("claudeSourceBookmark")
+      && model.keys.contains("claudeDesktopSessionsBookmarkV2"), "legacy grant requests explicit narrow reselection")
+check(model.defaults.data(forKey: "claudeSourceBookmark") == legacy, "migration does not silently rewrite the old authorization")
+let parent = model.sourceHome.appendingPathComponent("Library/Application Support/Claude")
+let narrow = parent.appendingPathComponent("claude-code-sessions")
+check(model.accepts(narrow) && !model.accepts(parent), "only the exact sessions folder satisfies the native grant contract")
+try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+try FileManager.default.createSymbolicLink(at: narrow, withDestinationURL: parent)
+check(!model.accepts(narrow), "a sessions-name symlink cannot widen the grant to Claude's app data")
+print("PASS: native legacy bookmark exclusion, reselection state and narrow-folder validation without grants")
+'''.replace("__HOME__", str(qa / "grant-fixture-home")).replace("__PROPERTIES__", grant_properties).replace("__RESTORE__", method(source, "restoreSourceAccess"))
+    compile_and_run(qa / "grants", grants)
+    initializer = source[source.index('        var selected = URL(string: "http://127.0.0.1:8769/")!'):
+                         source.index("        boardURL = selected")]
+    profile = '''import Foundation
+__INITIALIZER__
+#if AGENT_BOARD_DIRECT
+assert(fixture && selected.absoluteString == "http://127.0.0.1:58419/")
+print("PASS: direct profile retains explicitly requested local fixture mode")
+#else
+assert(!fixture && selected.absoluteString == "http://127.0.0.1:8769/")
+print("PASS: Store profile ignores fixture URL arguments and keeps authenticated monitoring")
+#endif
+'''.replace("__INITIALIZER__", initializer)
+    for name, flags in (("direct", ("-D", "AGENT_BOARD_DIRECT")), ("store", ())):
+        compile_and_run(qa / ("profile-" + name), profile, compiler_flags=flags,
+                        arguments=("--board-url", "http://127.0.0.1:58419/"))
     compile_and_run(qa / "runtime", runtime, runtime=True)
     print("Evidence:", qa)
 

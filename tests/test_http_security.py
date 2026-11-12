@@ -196,6 +196,38 @@ class LocalHTTPSecurityTests(unittest.TestCase):
         self.assertEqual(self.monitor.store.get(old["key"])["status"], "cooking")
         self.assertEqual(self.monitor.store.snapshot()["counts"]["cooking"], 1)
 
+    def test_review_and_snooze_do_not_wait_for_a_slow_source_scan(self):
+        entered = threading.Event()
+        release = threading.Event()
+        def slow_scan():
+            with self.monitor.lock:
+                entered.set()
+                release.wait(3)
+        worker = threading.Thread(target=slow_scan, daemon=True)
+        worker.start()
+        self.assertTrue(entered.wait(1))
+        event_id = self.monitor.store.get("codex:thread-1")["event_id"]
+        try:
+            with patch.object(self.monitor, "scan", side_effect=AssertionError("Actions must not scan sources")):
+                for action in ("snooze", "review"):
+                    start = time.monotonic()
+                    status, _, _ = self.request("POST", f"/api/sessions/codex:thread-1/{action}", {"event_id": event_id})
+                    self.assertEqual(status, 200)
+                    self.assertLess(time.monotonic() - start, .5)
+        finally:
+            release.set()
+            worker.join(1)
+
+    def test_options_has_security_headers_and_no_python_fingerprint(self):
+        status, headers, body = self.request("OPTIONS")
+        self.assertEqual(status, 405)
+        self.assertEqual(headers["Server"], "AgentBoard")
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
+        self.assertNotIn("Access-Control-Allow-Origin", headers)
+        self.assertEqual(json.loads(body)["error"], "This method is not supported.")
+
     def test_invalid_source_numbers_return_valid_recoverable_json(self):
         self.monitor.health = [{"id": "fixture", "last_seen": float("inf")}]
         status, _, data = self.request()

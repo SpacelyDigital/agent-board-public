@@ -80,7 +80,10 @@ class ReviewSampleTests(unittest.TestCase):
         self.assertTrue(Path(row[1]).is_relative_to(self.home / ".codex/sessions"))
         self.assertTrue(Path(row[1]).is_file())
         self.assertLess(abs(row[2] - time.time()), 5)
-        self.assertEqual(set(result["folders"]), {str(self.home / relative) for relative in samples.ROOTS})
+        self.assertEqual(set(result["folders"]), {str(self.home / relative) for relative in (
+            ".codex", ".claude", "Library/Application Support/Claude/claude-code-sessions")})
+        self.assertTrue(all(Path(folder).is_dir() for folder in result["folders"]))
+        self.assertNotIn(str(self.home / "Library/Application Support/Claude"), result["folders"])
         self.assertEqual(result["provider_requests"], 0)
         before = self.hashes()
         with self.assertRaises(samples.SampleError):
@@ -93,7 +96,7 @@ class ReviewSampleTests(unittest.TestCase):
 
         def monitor(selected=grants):
             return Monitor(self.home / "board-data", self.home / ".codex", self.home / ".claude",
-                           claude_desktop_root=self.home / "Library/Application Support/Claude",
+                           claude_desktop_root=self.home / "Library/Application Support/Claude/claude-code-sessions",
                            sandbox=True, source_grants=selected, store_profile=True)
 
         board = monitor()
@@ -121,7 +124,8 @@ class ReviewSampleTests(unittest.TestCase):
             self.assertEqual(samples.status(self.home), before)
         quotas = {item["id"]: item for item in state["usage"]}
         self.assertEqual(quotas["codex"]["windows"][0]["remaining_percent"], 73)
-        self.assertEqual([item["remaining_percent"] for item in quotas["claude"]["windows"]], [91])
+        self.assertEqual(quotas["claude"]["windows"], [])
+        self.assertEqual(quotas["claude"]["error"], "Not available in the App Store edition.")
         self.assertTrue(all(item["preview"] == "The synthetic review sample is ready." for item in state["sessions"]))
         reviewed = next(item for item in state["sessions"] if item["provider"] == "codex")
         board.store.review(reviewed["key"], reviewed["event_id"])

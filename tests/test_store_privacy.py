@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from build_support import runtime_asset_content, runtime_asset_mapping, stage_runtime_assets
-from server import BoardHTTPServer, Handler
+from server import BoardHTTPServer, Handler, Monitor
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = "static/about/privacy.html"
@@ -58,6 +58,51 @@ def policy_text(html):
 
 
 class StorePrivacyTests(unittest.TestCase):
+    def test_store_never_loads_the_claude_exporter_and_labels_usage_unavailable(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch("server.ClaudeLocalQuota", side_effect=AssertionError("Store must not read plugin exports")):
+            root = Path(temporary)
+            monitor = Monitor(root / "data", root / "codex", root / "claude",
+                              claude_desktop_root=root / "claude-code-sessions", sandbox=True,
+                              store_profile=True, source_grants=dict.fromkeys(("codex", "claude", "claude_desktop"), True))
+            try:
+                monitor.refresh_local_usage([], 100)
+                reading = next(item for item in monitor.usage if item["id"] == "claude")
+                self.assertFalse(reading["available"])
+                self.assertEqual(reading["windows"], [])
+                self.assertEqual(reading["error"], "Not available in the App Store edition.")
+                self.assertFalse(any(path.startswith("integrations/") for path in runtime_asset_mapping(store_profile=True)))
+            finally:
+                monitor.store.close()
+
+    def test_listing_and_edition_disclosures_match_the_shipped_boundaries(self):
+        listing = (ROOT / "store-listing/APP_STORE_METADATA.md").read_text()
+        self.assertNotIn("ko-fi", listing.lower())
+        self.assertNotIn("donat", listing.lower())
+        subtitle = listing.split("## Subtitle", 1)[1].split("##", 1)[0].strip()
+        self.assertLessEqual(len(subtitle), 30)
+        self.assertNotIn("Codex", subtitle)
+        self.assertNotIn("Claude", subtitle)
+        self.assertIn("Apple silicon", listing)
+        store = (ROOT / CANONICAL).read_text()
+        self.assertIn("Mac App Store edition", store)
+        self.assertNotIn("optional Claude plugin", store)
+        direct = (ROOT / "store-listing/site/direct-privacy.html").read_text()
+        self.assertIn("session-cookie database", direct)
+        self.assertIn("Claude Safe Storage", direct)
+        self.assertIn("chatgpt.com", direct)
+        self.assertIn("direct-privacy.html", store)
+        for policy in (store, direct):
+            self.assertIn("public privacy and support pages are hosted on GitHub Pages", policy)
+            self.assertIn("IP addresses for security", policy)
+            self.assertIn("does not load those pages during monitoring", policy)
+        support = (ROOT / "store-listing/site/support.html").read_text()
+        self.assertIn('href="direct-privacy.html"', support)
+        self.assertIn("Claude usage is not available in this edition", support)
+        self.assertIn("direct-download edition can request usage through its optional account connections", support)
+        self.assertNotIn("Claude requires the optional local usage plugin", support)
+        self.assertNotIn("Usage is a local observation, not a live account connection", support)
+
     def serve(self, store):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

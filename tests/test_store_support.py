@@ -5,6 +5,7 @@ import http.client
 import json
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -150,6 +151,9 @@ class StoreSupportTests(unittest.TestCase):
                         worker.join(timeout=2)
 
     def test_actual_native_section_script_creates_and_removes_only_local_content(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is required to exercise the native support section's JavaScript.")
         source = (ROOT / "MacApp.swift").read_text()
         function = source.split("func externalSupportSectionScript(visible: Bool) -> String {", 1)[1].split("\nfinal class AppDelegate", 1)[0]
         script = function.split('return """', 1)[1].split('"""', 1)[0]
@@ -193,7 +197,7 @@ const creations = resources.length; document.querySelector = () => null;
 run(true); assert.equal(page.children.length,1); assert.equal(resources.length,creations);
 console.log('PASS: native-generated section, hidden baseline, local QR, exact destinations, disclosure, replacement and removal');
 '''
-        completed = subprocess.run(["node", "-e", program, json.dumps({"script": script})], capture_output=True, text=True, timeout=10)
+        completed = subprocess.run([node, "-e", program, json.dumps({"script": script})], capture_output=True, text=True, timeout=10)
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertNotIn("innerHTML", script)
 

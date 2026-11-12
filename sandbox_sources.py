@@ -121,6 +121,8 @@ def activate_source_bookmarks(manifest_path, expected_roots, support, observatio
                 continue
             if not isinstance(bookmark, str):
                 raise ValueError("Invalid source bookmark.")
+            if provider == "claude_desktop" and expected.name != "claude-code-sessions":
+                raise ValueError("Choose the Claude Code sessions folder again; the previous app folder grant is no longer used.")
             raw = base64.b64decode(bookmark, validate=True)
             if not raw or len(raw) > 65_536:
                 raise ValueError("Invalid source bookmark size.")

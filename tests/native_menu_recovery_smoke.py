@@ -29,7 +29,7 @@ def main():
     methods = "\n\n".join(method(source, name) for name in (
         "item", "addNotificationItems", "buildMainMenu", "updateMenu",
         "changePageZoom", "validateMenuItem",
-        "showCollectorFailurePage", "retryMonitoring", "handleStartupErrorChoice"))
+        "showCollectorFailurePage", "showSetupPendingPage", "retryMonitoring", "handleStartupErrorChoice"))
     configuration = source[source.index("        let config = WKWebViewConfiguration()"):
                            source.index("        webView = WKWebView(frame:")]
     zoom_preferences = source[source.index("    let pageZoomLevels ="):
@@ -128,7 +128,8 @@ __ZOOM_INITIALIZATION__
     var logOpens = 0
     @objc func showAbout() {}
     @objc func showSetup() { setups += 1 }
-    @objc func toggleSampleBoard() {}
+    var samples = 0
+    @objc func toggleSampleBoard() { samples += 1 }
     @objc func openLocalData() {}
     @objc func showBoard() {}
     @objc func openNextChat() {}
@@ -157,7 +158,7 @@ let config = harness.makeConfiguration()
 check(config.preferences.tabFocusesLinks, "production WebKit Tab navigation enabled")
 check(!config.websiteDataStore.isPersistent, "production WebKit data remains nonpersistent")
 for (name, relative) in [("Codex", ".codex"), ("Claude Sessions", ".claude"),
-                         ("Claude", "Library/Application Support/Claude")] {
+                         ("Claude Code sessions", "Library/Application Support/Claude/claude-code-sessions")] {
     let expected = URL(fileURLWithPath: "/Users/sample-user", isDirectory: true).appendingPathComponent(relative)
     let panel = harness.makeFolderPanel(name: name, expected: expected)
     check(panel.message.contains(expected.path), "source picker preserves the exact expected folder")
@@ -319,6 +320,25 @@ harness.defaults.setupComplete = true
 harness.runtime.needsLegacyMigration = true
 harness.collectorRetryButton!.performClick(nil)
 check(harness.setups == 2 && harness.starts == 1, "Retry respects required legacy setup")
+harness.defaults.setupComplete = false
+harness.runtime.needsLegacyMigration = false
+harness.runtime.storeDistribution = true
+harness.showSetupPendingPage()
+let pendingStack = harness.window.contentView!.subviews.compactMap { $0 as? NSStackView }.first!
+let pendingButtons = pendingStack.arrangedSubviews.compactMap { $0 as? NSButton }
+check(pendingButtons.map { $0.title } == ["Set Up Monitoring…", "Try Sample Board"], "cancel leaves setup and Store sample actions available")
+check(!harness.defaults.setupComplete && harness.starts == 1, "cancel page does not accept setup or start a collector")
+pendingButtons[0].performClick(nil)
+check(harness.setups == 3, "cancel page can reopen Setup")
+pendingButtons[1].performClick(nil)
+check(harness.samples == 1, "cancel page can enter Sample Board")
+check(app.mainMenu!.items.compactMap { $0.submenu }.flatMap { $0.items }.contains {
+    $0.title == "Quit Agent Board" && $0.action == #selector(NSApplication.terminate(_:))
+}, "Quit remains reachable after setup cancellation")
+harness.runtime.storeDistribution = false
+harness.showSetupPendingPage()
+let directStack = harness.window.contentView!.subviews.compactMap { $0 as? NSStackView }.first!
+check(directStack.arrangedSubviews.compactMap { $0 as? NSButton }.map { $0.title } == ["Set Up Monitoring…"], "direct cancel page does not advertise Store sample mode")
 config.userContentController.removeScriptMessageHandler(forName: "agentBoard")
 print("PASS: compiled source-picker/menu recovery, real WebKit zoom bounds/layout/fake-preference restore, preserved manual menu eligibility and native configuration")
 '''.replace("__CONFIGURATION__", configuration.rstrip()).replace("__FOLDER_CONFIGURATION__", folder_configuration.rstrip()).replace("__METHODS__", methods)

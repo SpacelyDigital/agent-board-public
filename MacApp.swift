@@ -297,9 +297,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var supportPath: NWPathMonitor?
 
     override init() {
-        let arguments = ProcessInfo.processInfo.arguments
         var selected = URL(string: "http://127.0.0.1:8769/")!
         var fixture = false
+        #if AGENT_BOARD_DIRECT
+        let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "--board-url"), index + 1 < arguments.count,
            let candidate = URL(string: arguments[index + 1]), candidate.scheme == "http",
            candidate.host == "127.0.0.1", let port = candidate.port, (1024...65535).contains(port),
@@ -308,6 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             selected = candidate
             fixture = true
         }
+        #endif
         boardURL = selected
         fixtureMode = fixture
         let suffix = fixture ? ".fixture.\(selected.port!)" : ""
@@ -658,7 +660,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let generation = stateGeneration
         var request = URLRequest(url: boardURL.appendingPathComponent("api/state"))
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        #if AGENT_BOARD_DIRECT
         if !fixtureMode { request.setValue(runtime.accessToken, forHTTPHeaderField: "X-Agent-Board-Access") }
+        #else
+        request.setValue(runtime.accessToken, forHTTPHeaderField: "X-Agent-Board-Access")
+        #endif
         session.dataTask(with: request) { [weak self] data, response, error in
             var result: Result<[String: Any], Error>
             if let error { result = .failure(error) }
@@ -815,7 +821,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "X-Agent-Board-Token")
+        #if AGENT_BOARD_DIRECT
         if !fixtureMode { request.setValue(runtime.accessToken, forHTTPHeaderField: "X-Agent-Board-Access") }
+        #else
+        request.setValue(runtime.accessToken, forHTTPHeaderField: "X-Agent-Board-Access")
+        #endif
         var body: [String: Any] = ["event_id": eventID]
         if action == "snooze" { body["minutes"] = 10 }
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -963,7 +973,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         content.alignment = .leading
         content.spacing = 10
         let explanation = NSTextField(wrappingLabelWithString: runtime.sandboxed
-            ? "Agent Board reads only the source folders you select below. Your board and preferences stay on this Mac. Usage meters use local provider readings, without reading saved sign-ins or contacting OpenAI or Anthropic. Claude usage requires the optional local exporter."
+            ? "Agent Board reads only the source folders you select below. Your board and preferences stay on this Mac. Codex usage uses local readings, without reading saved sign-ins or contacting OpenAI or Anthropic."
             : "Agent Board reads local Codex and Claude Code sessions to build your review queue. Your board and preferences stay on this Mac.\n\nOptional account features read usage, chat titles and reply status directly from OpenAI or Anthropic using your existing sign-in. Regular chat monitoring includes web and desktop conversations in the signed-in account. A ChatGPT latest-reply check can include message text; Agent Board keeps only reply identifiers, timestamps and completion status, then discards the response. If Claude account access is unavailable, use Allow Claude Account Access below. Background reads do not show Keychain prompts.")
         explanation.preferredMaxLayoutWidth = 440
         explanation.widthAnchor.constraint(equalToConstant: 440).isActive = true
@@ -1011,11 +1021,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         folders.spacing = 8
         folders.addArrangedSubview(NSButton(title: "Codex Folder…", target: self, action: #selector(grantCodexFolder)))
         folders.addArrangedSubview(NSButton(title: "Claude Sessions…", target: self, action: #selector(grantClaudeSessions)))
-        folders.addArrangedSubview(NSButton(title: "Claude Desktop…", target: self, action: #selector(grantClaudeFolder)))
+        folders.addArrangedSubview(NSButton(title: "Claude Code in Desktop…", target: self, action: #selector(grantClaudeFolder)))
         content.addArrangedSubview(folders)
-        if runtime.sandboxed {
+        if claudeDesktopNeedsReselection {
+            let migration = NSTextField(wrappingLabelWithString: "Choose the Claude Code sessions folder. The previous Claude app folder permission is no longer used.")
+            migration.preferredMaxLayoutWidth = 440
+            content.addArrangedSubview(migration)
+        }
+        #if AGENT_BOARD_DIRECT
+        if runtime.sandboxed && !runtime.storeDistribution {
             content.addArrangedSubview(NSButton(title: "Connect Claude Usage…", target: self, action: #selector(connectClaudeUsage)))
         }
+        #endif
         content.addArrangedSubview(NSButton(title: "Forget Source Folders", target: self, action: #selector(forgetSourceFolders)))
         let documentHeight = ceil(content.fittingSize.height)
         content.frame = NSRect(x: 0, y: 0, width: 440, height: documentHeight)
@@ -1045,7 +1062,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         guard response == .alertFirstButtonReturn else {
-            if !defaults.bool(forKey: "setupCompletedV1") { NSApp.terminate(nil) }
+            if !defaults.bool(forKey: "setupCompletedV1") { showSetupPendingPage() }
             return
         }
         if !fixtureMode && runtime.needsLegacyMigration {
@@ -1055,7 +1072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             migration.addButton(withTitle: "Replace Previous Collector")
             migration.addButton(withTitle: "Cancel")
             guard migration.runModal() == .alertFirstButtonReturn else {
-                if !defaults.bool(forKey: "setupCompletedV1") { NSApp.terminate(nil) }
+                showSetupPendingPage()
                 return
             }
             do { try runtime.migrateLegacyService() }
@@ -1104,9 +1121,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc func grantCodexFolder() { grantFolder(name: "Codex", relative: ".codex", key: "codexSourceBookmark") }
-    @objc func grantClaudeFolder() { grantFolder(name: "Claude", relative: "Library/Application Support/Claude", key: "claudeSourceBookmark") }
+    @objc func grantClaudeFolder() { grantFolder(name: "Claude Code sessions", relative: "Library/Application Support/Claude/claude-code-sessions", key: "claudeDesktopSessionsBookmarkV2") }
     @objc func grantClaudeSessions() { grantFolder(name: "Claude Sessions", relative: ".claude", key: "claudeSessionsBookmark") }
 
+    #if AGENT_BOARD_DIRECT
     @objc func connectClaudeUsage() {
         guard !sampleModeSelected else { return }
         let directory = runtime.executable.deletingLastPathComponent().deletingLastPathComponent()
@@ -1131,9 +1149,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         default: break
         }
     }
+    #endif
 
     private var sourceBookmarkKeys: [(key: String, provider: String)] {
-        [("codexSourceBookmark", "codex"), ("claudeSessionsBookmark", "claude"), ("claudeSourceBookmark", "claude_desktop")]
+        [("codexSourceBookmark", "codex"), ("claudeSessionsBookmark", "claude"), ("claudeDesktopSessionsBookmarkV2", "claude_desktop")]
+    }
+
+    private var claudeDesktopNeedsReselection: Bool {
+        defaults.data(forKey: "claudeSourceBookmark") != nil
+            && defaults.data(forKey: "claudeDesktopSessionsBookmarkV2") == nil
+    }
+
+    private func validSourceGrant(_ url: URL, provider: String) -> Bool {
+        guard provider == "claude_desktop" else { return true }
+        let expected = sourceHome.appendingPathComponent("Library/Application Support/Claude/claude-code-sessions").standardizedFileURL
+        return url.standardizedFileURL == expected
+            && url.resolvingSymlinksInPath().lastPathComponent == "claude-code-sessions"
     }
 
     private var sourceHome: URL {
@@ -1158,7 +1189,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.showsHiddenFiles = true
         panel.directoryURL = expected
         guard panel.runModal() == .OK, let selected = panel.url else { return }
-        guard selected.standardizedFileURL == expected else {
+        let provider = sourceBookmarkKeys.first(where: { $0.key == key })?.provider
+        guard selected.standardizedFileURL == expected,
+              provider.map({ validSourceGrant(selected, provider: $0) }) ?? false else {
             let alert = NSAlert()
             alert.messageText = "Choose the \(name) source folder."
             alert.informativeText = "The folder must be \(expected.path). If \(name) is not installed or signed in, you can continue without it."
@@ -1168,12 +1201,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         do {
             let bookmark = try selected.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil)
             defaults.set(bookmark, forKey: key)
-            if let provider = sourceBookmarkKeys.first(where: { $0.key == key })?.provider {
+            if key == "claudeDesktopSessionsBookmarkV2" { defaults.removeObject(forKey: "claudeSourceBookmark") }
+            if let provider {
                 if let previous = sourceURLs[provider] {
                     previous.stopAccessingSecurityScopedResource()
                     accessURLs.removeAll { $0 == previous }
                 }
-                if selected.startAccessingSecurityScopedResource() {
+                if validSourceGrant(selected, provider: provider) && selected.startAccessingSecurityScopedResource() {
                     accessURLs.append(selected)
                     sourceURLs[provider] = selected
                 }
@@ -1194,8 +1228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let bookmark = defaults.data(forKey: key) else { continue }
             if sourceURLs[provider] != nil { continue }
             var stale = false
-            if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &stale),
-               !accessURLs.contains(url), url.startAccessingSecurityScopedResource() {
+            if let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale),
+               validSourceGrant(url, provider: provider), !accessURLs.contains(url), url.startAccessingSecurityScopedResource() {
                 accessURLs.append(url)
                 sourceURLs[provider] = url
                 if stale, let updated = try? url.bookmarkData(options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess], includingResourceValuesForKeys: nil, relativeTo: nil) {
@@ -1216,6 +1250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         sourceURLs.removeAll()
         runtime.grantedSourceURLs.removeAll()
         for (key, _) in sourceBookmarkKeys { defaults.removeObject(forKey: key) }
+        defaults.removeObject(forKey: "claudeSourceBookmark")
         sourceAccessChanged = true
         if !fixtureMode && defaults.bool(forKey: "setupCompletedV1") { startCollector() }
         else { updateMenu() }
@@ -1422,6 +1457,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.makeFirstResponder(retry)
     }
 
+    func showSetupPendingPage() {
+        let content = NSView(frame: window.contentView?.frame ?? .zero)
+        let heading = NSTextField(labelWithString: "Agent Board is not set up yet.")
+        heading.font = .systemFont(ofSize: 22, weight: .semibold)
+        let detail = NSTextField(wrappingLabelWithString: runtime.storeDistribution
+            ? "Open Setup to select your folders, or try the sample board."
+            : "Open Setup to choose your monitoring preferences.")
+        detail.font = .systemFont(ofSize: 14)
+        detail.textColor = .secondaryLabelColor
+        let setup = NSButton(title: "Set Up Monitoring…", target: self, action: #selector(showSetup))
+        setup.bezelStyle = .rounded
+        setup.keyEquivalent = "\r"
+        var views: [NSView] = [heading, detail, setup]
+        if runtime.storeDistribution {
+            let sample = NSButton(title: "Try Sample Board", target: self, action: #selector(toggleSampleBoard))
+            sample.bezelStyle = .rounded
+            views.append(sample)
+        }
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 36),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -36),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 44),
+            detail.widthAnchor.constraint(lessThanOrEqualToConstant: 600)
+        ])
+        webView.stopLoading()
+        window.contentView = content
+        collectorRetryButton = nil
+        window.makeFirstResponder(setup)
+        updateMenu()
+    }
+
     @objc func retryMonitoring() {
         guard !startingCollector else { return }
         if startupModeError != nil { startCollector(); return }
@@ -1578,6 +1650,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             DispatchQueue.main.async { [weak self] in
                 guard NSApp.modalWindow == nil else { return }
                 self?.showSetup()
+            }
+        }
+        else if message.body as? String == "sampleBoard", runtime.storeDistribution, !fixtureMode, !sampleModeSelected,
+                let url = message.frameInfo.request.url,
+                url.scheme == "http", url.host == boardURL.host, url.port == boardURL.port,
+                url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+                url.path == "/" || url.path == "/index.html" {
+            let generation = stateGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.stateGeneration == generation, NSApp.modalWindow == nil,
+                      !self.startingCollector, !self.sampleModeSelected else { return }
+                self.setBoardMode(sample: true)
             }
         }
         else if message.body as? String == "theme:dark" { window.appearance = NSAppearance(named: .darkAqua) }

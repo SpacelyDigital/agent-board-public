@@ -45,6 +45,8 @@ class SourceDiscoveryTests(unittest.TestCase):
         self.assertIn(good.parent, visited)
 
     def test_derived_desktop_sessions_symlink_does_not_become_a_new_authorized_root(self):
+        # Retain the legacy caller boundary even though the Store picker now
+        # grants the sessions directory itself.
         support = self.selected / "Claude"
         support.mkdir()
         outside = self.root / "outside-sessions"
@@ -58,6 +60,36 @@ class SourceDiscoveryTests(unittest.TestCase):
         with patch("source_access.os.scandir", side_effect=AssertionError("Redirected root must not be listed")), \
                 patch.object(Path, "open", side_effect=AssertionError("Outside metadata must not be read")):
             self.assertEqual(source._desktop_sessions(), {})
+        self.assertFalse(source._desktop_index_complete)
+
+    def test_narrow_desktop_grant_keeps_valid_metadata_and_rejects_linked_subtrees(self):
+        sessions = self.selected / "claude-code-sessions"
+        good = sessions / "account/org/local_fixture.json"
+        good.parent.mkdir(parents=True)
+        good.write_text(json.dumps(dict(sessionId="local_fixture", cliSessionId="allowed-fixture",
+                                        title="Inside sessions scope")))
+        outside = self.root / "outside-sessions"
+        metadata = outside / "org/local_private.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps(dict(sessionId="local_private", cliSessionId="private-fixture",
+                                            title="Outside scope")))
+        redirected = sessions / "redirected-account"
+        redirected.symlink_to(outside, target_is_directory=True)
+        source = ClaudeSource(self.selected, desktop_root=sessions, desktop_scope_root=sessions,
+                              confine_paths=True, allow_commands=False)
+        actual_scandir, actual_open = os.scandir, Path.open
+
+        def scan(path):
+            self.assertNotIn(Path(path), (outside, redirected))
+            return actual_scandir(path)
+
+        def read(path, *args, **kwargs):
+            self.assertTrue(Path(path).is_relative_to(sessions))
+            self.assertFalse(Path(path).is_relative_to(redirected))
+            return actual_open(path, *args, **kwargs)
+
+        with patch("source_access.os.scandir", side_effect=scan), patch.object(Path, "open", new=read):
+            self.assertEqual(set(source._desktop_sessions()), {"allowed-fixture"})
         self.assertFalse(source._desktop_index_complete)
 
     def test_user_selected_root_alias_remains_allowed_but_child_links_and_special_files_do_not(self):
