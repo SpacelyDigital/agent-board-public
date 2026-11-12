@@ -117,6 +117,31 @@ class ClaudeChatMonitorTests(unittest.TestCase):
         self.scan(3)
         self.assertEqual(self.item()['event_id'], ready['event_id'])
 
+    def test_expired_incomplete_status_explains_missing_metadata_and_recovers(self):
+        self.set_row(live_status='running', live_status_started_at=self.now - 1)
+        self.assertTrue(self.scan()['available'])
+        active = self.item()
+        self.reader.snapshot['error_code'] = 'incomplete_status'
+        retained = self.source.scan(self.store, self.now + 5)
+        self.assertTrue(retained['available'])
+        self.assertEqual(retained['last_seen'], self.now)
+        self.assertEqual(retained['detail'], 'Claude did not include current chat status. Using the previous reading while retrying.')
+        self.reader.snapshot.update(available=False, fresh=False, error_code='incomplete_status')
+        health = self.source.scan(self.store, self.now + 20)
+        self.assertFalse(health['available'])
+        self.assertEqual(health['detail'], 'Claude did not include current chat status. Retrying automatically.')
+        self.assertNotIn('sign-in', health['detail'])
+        self.assertEqual(self.item()['event_id'], active['event_id'])
+        self.assertEqual(self.item()['status'], 'cooking')
+        self.assertEqual(self.source.cooking, {})
+        self.reader.snapshot.update(available=True, fresh=True, error_code=None)
+        self.set_row(last_settled_at=self.now + 20, current_leaf_message_uuid=LEAF_B)
+        self.assertTrue(self.scan(21)['available'])
+        self.assertEqual(self.item()['status'], 'ready')
+        self.assertEqual(self.item()['turn_id'], active['turn_id'])
+        self.reader.snapshot['conversations'] = {}
+        self.assertEqual(self.scan(22)['detail'], 'Monitoring Claude chats using their account identities.')
+
     def test_whole_second_completion_supersedes_fractional_cooking_time(self):
         second = int(self.now) + 1
         self.set_row(live_status='running', live_status_started_at=second,

@@ -359,6 +359,21 @@ class ChatGPTConversationSource:
         self.observed_at = now if self.available else self.observed_at
         return self.health()
 
+    def owns_saved_event(self, item):
+        """Fence saved lifecycle events to the currently authenticated account."""
+        scope = self.status_reader.current_account_identity()
+        ident = item.get("id")
+        turn = item.get("turn_id")
+        if (not isinstance(scope, str) or not re.fullmatch(r"[0-9a-f]{64}", scope)
+                or not isinstance(ident, str) or not ident.startswith(DESKTOP_CHAT_ID_PREFIX)
+                or not isinstance(turn, str)):
+            return False
+        uuid = ident[len(DESKTOP_CHAT_ID_PREFIX):]
+        if not DESKTOP_CHAT_ID.fullmatch(uuid):
+            return False
+        prefixes = (f"chatgpt-stream:{uuid}:{scope}:", f"chatgpt-reply:{uuid}:{scope}:")
+        return any(turn.startswith(prefix) and len(turn) > len(prefix) for prefix in prefixes)
+
     def open_chats(self, now):
         # Catalog-only rows deliberately do not claim to be open or completed.
         if (not self.available or self.observed_at is None

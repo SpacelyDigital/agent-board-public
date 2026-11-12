@@ -36,7 +36,7 @@ FRESH_SECONDS = 15.0
 IDLE_POLL_SECONDS = 10.0
 ACTIVE_POLL_SECONDS = 5.0
 FETCH_TIMEOUT = 13.0
-_ERROR_CODES = {"unavailable", "authentication", "account_mismatch", "rate_limited", "access_required", "invalid_response"}
+_ERROR_CODES = {"unavailable", "authentication", "account_mismatch", "rate_limited", "access_required", "invalid_response", "incomplete_status"}
 
 
 def _uuid(value: object) -> str | None:
@@ -102,7 +102,9 @@ def parse_conversations(data: object, now: float) -> dict[str, dict]:
         if row.get("platform") != "CLAUDE_AI":
             continue
         if "live_status" not in row or "needs_input" not in row:
-            continue  # Missing status metadata cannot prove a settled reply.
+            # A list can contain every chat while omitting its activity fields.
+            # This is an incomplete reading, not an empty account or idle turn.
+            raise ProviderRequestError("incomplete_status")
         needs_input = row["needs_input"]
         if needs_input is not None and type(needs_input) is not bool:
             raise ProviderRequestError("response")
@@ -197,7 +199,7 @@ def _credentials(folder: Path, now: float) -> tuple[str, str, str]:
 
 def _read_json(route: str, org: str, cookie: str, *, max_bytes: int) -> object:
     """Fixed first-party metadata routes, verified TLS, no redirects/proxies."""
-    if (not _uuid(org) or route not in ("/api/account", "/api/organizations/" + org + "/chat_conversations?limit=100&is_archived=false")
+    if (not _uuid(org) or route not in ("/api/account", "/api/organizations/" + org + "/chat_conversations?limit=100&is_archived=false&consistency=strong")
             or not isinstance(cookie, str) or not 0 < len(cookie) <= 16384
             or any(ord(char) < 33 or ord(char) > 126 or char == ";" for char in cookie)
             or type(max_bytes) is not int or not 1 <= max_bytes <= MAX_METADATA_BYTES):
@@ -237,14 +239,21 @@ def read_account_chats(folder: Path = CLAUDE_DESKTOP, *, now: float | None = Non
     if not isinstance(profile, dict) or _uuid(profile.get("uuid")) != account:
         raise ProviderRequestError("account_mismatch")
     del profile
-    data = _read_json("/api/organizations/" + org + "/chat_conversations?limit=100&is_archived=false",
+    # The installed desktop client requests strong consistency for this list.
+    data = _read_json("/api/organizations/" + org + "/chat_conversations?limit=100&is_archived=false&consistency=strong",
                       org, cookie, max_bytes=MAX_METADATA_BYTES)
-    conversations = parse_conversations(data, now)
+    try:
+        conversations = parse_conversations(data, now)
+    except ProviderRequestError as error:
+        if error.reason != "incomplete_status":
+            raise
+        conversations = None
     del data
     if credential_revision(folder) != revision:
         raise ProviderRequestError("authentication")
-    return {"account_scope": hashlib.sha256((account + "\0" + org).encode()).hexdigest(),
-            "conversations": conversations}
+    scope = hashlib.sha256((account + "\0" + org).encode()).hexdigest()
+    return {"account_scope": scope, **({"error_code": "incomplete_status"} if conversations is None
+                                      else {"conversations": conversations})}
 
 
 def helper_main() -> None:
@@ -350,6 +359,23 @@ class ClaudeChatAccountReader:
                     "account_scope": self._scope, "conversations": copy.deepcopy(self._conversations) if fresh else {},
                     "error_code": self._error, "retry_at": self._next_at if math.isfinite(self._next_at) and self._next_at > now else None}
 
+    def _retain_incomplete(self, scope, now):
+        if not isinstance(scope, str) or not re.fullmatch(r"[a-f0-9]{64}", scope):
+            return False
+        # Keep only the last receipt from this same verified account. Its
+        # original timestamp still expires after FRESH_SECONDS; missing fields
+        # must neither renew Cooking nor erase it as if the provider reported
+        # an idle conversation. The caller also verifies credential generation.
+        if self._scope != scope:
+            self._scope = scope
+            self._at = None
+            self._conversations = {}
+        self._error = "incomplete_status"
+        active = any(row["live_status"] == "running" or row["needs_input"] is True
+                     for row in self._conversations.values())
+        self._next_at = now + max(ACTIVE_POLL_SECONDS if active else IDLE_POLL_SECONDS, self._rate_floor)
+        return True
+
     def _refresh(self, generation: int, revision: str) -> None:
         try:
             data = self._fetcher()
@@ -367,9 +393,15 @@ class ClaudeChatAccountReader:
             self._busy = False
             if self._closed or generation != self._generation or current_revision != revision:
                 return
+            if (isinstance(data, dict) and data.get("error_code") == "incomplete_status"
+                    and self._retain_incomplete(data.get("account_scope"), now)):
+                return
             try:
                 scope, conversations = _validated_result(data, now)
-            except (ValueError, TypeError, ProviderRequestError):
+            except (ValueError, TypeError, ProviderRequestError) as failure:
+                if (isinstance(failure, ProviderRequestError) and failure.reason == "incomplete_status"
+                        and self._retain_incomplete(data.get("account_scope"), now)):
+                    return
                 error = data.get("error_code") if isinstance(data, dict) else None
                 self._error = error if isinstance(error, str) and error in _ERROR_CODES else "invalid_response"
                 self._failures += 1

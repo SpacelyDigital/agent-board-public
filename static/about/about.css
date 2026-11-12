@@ -13,6 +13,7 @@
 .about-page a:focus-visible { outline: 2px solid var(--green); outline-offset: 5px; border-radius: 2px; }
 .back-link { font-size: 12px; white-space: nowrap; }
 .about-page p { margin: 0 0 14px; }
+.about-page .about-version { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .about-intro { max-width: 680px; font-size: 16px; line-height: 1.8; }
 .about-section { border-top: 1px solid var(--line); margin-top: 30px; padding-top: 26px; }
 .about-page h2 { font-size: 16px; font-weight: 600; line-height: 1.4; margin: 0 0 14px; letter-spacing: -.2px; }

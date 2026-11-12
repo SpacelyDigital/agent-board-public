@@ -33,6 +33,10 @@ STALE_SECONDS = 30 * 60
 MAX_TAIL_BYTES = 8 * 1024 * 1024
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_THREADS = 500
+RECENT_TRANSCRIPT_SECONDS = 60
+# Reserve a small part of each existing poll budget for older histories. Recent
+# appends still get work on every poll, without starving cold history indexing.
+BACKGROUND_BUDGET_FRACTION = 1 / 8
 _INDEX_COPY_BYTES = 64 * 1024 * 1024
 _INDEX_COPY_ATTEMPTS = 2
 _INDEX_COPY_SECONDS = 1.0
@@ -566,18 +570,20 @@ class CodexSource:
         except (sqlite3.Error, OSError, ValueError):
             return [], "Codex thread database could not be read."
 
+    def _rollout_path(self, path: Path) -> Path:
+        if self.confine_paths:
+            # Apply the same folder boundary to scheduling metadata and reads.
+            relative = path.absolute().relative_to(self.root.absolute())
+            if (len(relative.parts) < 2 or relative.parts[0] not in {"sessions", "archived_sessions"}
+                    or ".." in relative.parts or relative.suffix != ".jsonl"):
+                raise ValueError("Unsupported rollout location")
+            return require_source_path(path, self.root)
+        return path
+
     def _read(self, path: Path, budget=None, identifier=None) -> tuple[_FileState | None, float, str | None]:
         try:
             cache_key = path
-            if self.confine_paths:
-                # An index row is untrusted input. A folder grant authorizes
-                # session discovery, not arbitrary reads of auth/config files
-                # that happen to live beside the thread database.
-                relative = path.absolute().relative_to(self.root.absolute())
-                if (len(relative.parts) < 2 or relative.parts[0] not in {"sessions", "archived_sessions"}
-                        or ".." in relative.parts or relative.suffix != ".jsonl"):
-                    raise ValueError("Unsupported rollout location")
-                path = require_source_path(path, self.root)
+            path = self._rollout_path(path)
             stat = path.stat()
             if not stat_module.S_ISREG(stat.st_mode):
                 return None, 0.0, "Codex rollout is not a regular file."
@@ -649,12 +655,56 @@ class CodexSource:
         fallback_positions: dict[str, int] = {}
         indexed_ids = {row["id"] for row in rows}
         unreadable = 0
-        budget = _TranscriptBudget()
+        priority = []
+        background = []
         if candidates:
-            offset = self._scan_rotation % len(candidates)
-            candidates = candidates[offset:] + candidates[:offset]
+            # A recently appended chat must get verification work on every
+            # poll. Giving a cold history the entire budget on alternate polls
+            # made an actively growing chat alternate between verified and
+            # checking, even when its full prefix fit within one poll.
+            recent = set()
+            for _, path in candidates:
+                try:
+                    info = self._rollout_path(path).lstat()
+                    if (stat_module.S_ISREG(info.st_mode)
+                            and info.st_mtime >= now - RECENT_TRANSCRIPT_SECONDS):
+                        recent.add(path)
+                except (OSError, ValueError):
+                    continue
+            if not recent:
+                # The newest index row supplies a startup candidate only when
+                # no recently modified history already has priority.
+                recent.add(candidates[0][1])
+            # Modification time only schedules work; unchanged-prefix and
+            # lifecycle checks still decide status. Stable path order keeps
+            # both rings fair when provider index recency changes.
+            priority = sorted((item for item in candidates if item[1] in recent),
+                              key=lambda item: str(item[1]))
+            background = sorted((item for item in candidates if item[1] not in recent),
+                                key=lambda item: str(item[1]))
+            offset = self._scan_rotation % len(priority)
+            priority = priority[offset:] + priority[:offset]
+            if background:
+                offset = self._scan_rotation % len(background)
+                background = background[offset:] + background[:offset]
+            candidates = priority + background
             self._scan_rotation += 1
-        for row, path in candidates:
+        # Discovery and scheduling metadata must not consume the parse budget
+        # before any history gets a chance to make progress.
+        budget = _TranscriptBudget()
+        full_deadline = budget.deadline
+        reserved_bytes = 0
+        if priority and background:
+            reserved_bytes = int(budget.remaining * BACKGROUND_BUDGET_FRACTION)
+            budget.remaining -= reserved_bytes
+            duration = max(0.0, full_deadline - time.monotonic())
+            budget.deadline -= duration * BACKGROUND_BUDGET_FRACTION
+        for position, (row, path) in enumerate(candidates):
+            if position == len(priority):
+                # This is still one global budget. Unused foreground capacity
+                # also flows to background work; no deadline is extended.
+                budget.remaining += reserved_bytes
+                budget.deadline = full_deadline
             if row.get("id") in seen:
                 continue
             state, mtime, error = self._read(path, budget, row.get("id"))

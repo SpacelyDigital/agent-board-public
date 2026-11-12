@@ -158,12 +158,27 @@ extendedKeyUsage=serverAuth
         paths = ["/v1/code/channels?scope=all", "/v1/code/sessions/cse_fixture123",
                  "/v1/code/channels/chan_fixture123/timeline?limit=100",
                  "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123?limit=1",
-                 "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123?limit=100&cursor=fixture%2B%2F%3D"]
+                 "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123?limit=100&cursor=fixture%2B%2F%3D",
+                 "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123?limit=100&newest_first=true",
+                 "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123?limit=100&newest_first=true&cursor=fixture"]
         with self.transport():
             for path in paths:
                 self.assertEqual(self.read(path, purpose="projects"), {})
         self.assertEqual([row["path"] for row in self.requests], paths)
         self.assertEqual(self.connects, [("api.anthropic.com", 443)] * len(paths))
+
+    def test_newest_first_is_only_allowed_for_bounded_thread_pages(self):
+        thread = "/v1/code/channels/chan_fixture123/threads/cmsg_fixture123"
+        paths = [thread + "?limit=100&newest_first=false", thread + "?limit=100&newest_first=1",
+                 thread + "?limit=1&newest_first=true", thread + "?limit=200&newest_first=true",
+                 thread + "?limit=100&newest_first=true&newest_first=true",
+                 "/v1/code/channels/chan_fixture123/timeline?limit=100&newest_first=true",
+                 "/v1/code/channels?scope=all&newest_first=true"]
+        with self.transport():
+            for path in paths:
+                with self.subTest(path=path), self.assertRaises(network.ProviderRequestError):
+                    self.read(path, purpose="projects")
+        self.assertFalse(self.connects)
 
     def test_foreign_origins_ports_credentials_fragments_and_write_routes_never_connect(self):
         urls = ["http://api.anthropic.com/api/oauth/usage",

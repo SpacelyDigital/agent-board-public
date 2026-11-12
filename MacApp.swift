@@ -129,6 +129,18 @@ struct AttentionChat {
     var signature: String { key + "|" + eventID }
 }
 
+struct AttentionDelivery {
+    let generation: UUID
+    let intent: UUID
+    let snoozedUntil: Double
+    let expiresAt: TimeInterval
+    let snapshotExpiresAt: Double
+    var attempt = UUID()
+    var attempts = 0
+    var retryAt: TimeInterval
+    var inFlight = false
+}
+
 func fixedKoFiURL(_ value: String) -> URL? {
     guard value == "https://ko-fi.com/spacelydigital" else { return nil }
     return URL(string: value)
@@ -251,6 +263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var requestingPermission = false
     var notificationIntent = UUID()
     var lastDeliveryFailed = false
+    var pendingNotifications: [String: AttentionDelivery] = [:]
+    var notificationClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     var notificationToggleItems: [NSMenuItem] = []
     var notificationStatusItems: [NSMenuItem] = []
     var testNotificationItems: [NSMenuItem] = []
@@ -688,6 +702,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             updateMenu()
             return
         }
+        let deliveryNow = notificationClock()
+        let canNotify = !runtime.sampleMode && notificationsEnabled && permissionAllowsNotifications && !boardIsVisibleAndActive
+        let eligibleDeliveries = incoming.reduce(into: [String: Double]()) { result, chat in
+            if chat.eligible && (!chat.reconfirmationSilent || chat.snoozedUntil > 0) {
+                result[chat.signature] = chat.snoozedUntil
+            }
+        }
+        // Retries belong to this exact attention event and reminder. They never
+        // survive review, replacement, revoked access or a different board.
+        pendingNotifications = pendingNotifications.filter { signature, delivery in
+            canNotify && delivery.generation == stateGeneration && delivery.intent == notificationIntent
+                && delivery.expiresAt > deliveryNow && eligibleDeliveries[signature] == delivery.snoozedUntil
+                && delivery.snapshotExpiresAt > now
+        }
         var ledgerChanged = false
         for chat in incoming where !chat.eventID.isEmpty {
             let known = seen.contains(chat.signature)
@@ -705,8 +733,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // without creating an alert later merely because the window closes.
             handledAt[chat.signature] = now
             ledgerChanged = true
-            if !runtime.sampleMode && notificationsEnabled && permissionAllowsNotifications && !boardIsVisibleAndActive {
-                notify(chat)
+            if canNotify && pendingNotifications.count < 3000 {
+                pendingNotifications[chat.signature] = AttentionDelivery(generation: stateGeneration,
+                    intent: notificationIntent, snoozedUntil: chat.snoozedUntil,
+                    expiresAt: deliveryNow + 120, snapshotExpiresAt: now + 120, retryAt: deliveryNow)
             }
         }
         if seenOrder.count > 3000 {
@@ -719,12 +749,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             defaults.set(seenOrder, forKey: seenLedgerKey)
             defaults.set(handledAt, forKey: handledLedgerKey)
         }
+        for chat in incoming where chat.eligible {
+            if let delivery = pendingNotifications[chat.signature], !delivery.inFlight, delivery.retryAt <= deliveryNow {
+                notify(chat)
+            }
+        }
         chats = incoming
         receivedInitialSnapshot = true
         updateMenu()
     }
 
     func notify(_ chat: AttentionChat) {
+        guard var delivery = pendingNotifications[chat.signature], !delivery.inFlight,
+              delivery.generation == stateGeneration, delivery.intent == notificationIntent else { return }
+        delivery.attempts += 1
+        delivery.attempt = UUID()
+        delivery.inFlight = true
+        pendingNotifications[chat.signature] = delivery
+        let attempt = delivery.attempt
+        let generation = delivery.generation
         let content = UNMutableNotificationContent()
         content.title = chat.title
         content.body = chat.status == "needs_you" ? "\(chat.provider) needs your approval or input." : "\(chat.provider) has a reply ready to review."
@@ -734,7 +777,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let digest = SHA256.hash(data: Data(chat.signature.utf8)).map { String(format: "%02x", $0) }.joined()
         let identifier = notificationPrefix + "." + digest
         center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { [weak self] error in
-            DispatchQueue.main.async { self?.lastDeliveryFailed = error != nil; self?.updateMenu() }
+            DispatchQueue.main.async {
+                guard let self, self.stateGeneration == generation,
+                      var pending = self.pendingNotifications[chat.signature], pending.attempt == attempt,
+                      pending.intent == self.notificationIntent else { return }
+                self.lastDeliveryFailed = error != nil
+                if error != nil && pending.attempts < 3 && pending.expiresAt > self.notificationClock() {
+                    pending.inFlight = false
+                    pending.retryAt = self.notificationClock() + (pending.attempts == 1 ? 5 : 15)
+                    self.pendingNotifications[chat.signature] = pending
+                } else {
+                    // A nil completion means the OS accepted the request. Never
+                    // retry it based on whether a banner happened to be visible.
+                    self.pendingNotifications.removeValue(forKey: chat.signature)
+                }
+                self.updateMenu()
+            }
         }
     }
 
@@ -906,7 +964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         content.spacing = 10
         let explanation = NSTextField(wrappingLabelWithString: runtime.sandboxed
             ? "Agent Board reads only the source folders you select below. Your board and preferences stay on this Mac. Usage meters use local provider readings, without reading saved sign-ins or contacting OpenAI or Anthropic. Claude usage requires the optional local exporter."
-            : "Agent Board reads local Codex and Claude Code sessions to build your review queue. Your board and preferences stay on this Mac.\n\nOptional account features read usage, chat titles and reply status directly from OpenAI or Anthropic using your existing sign-in. Regular chat monitoring includes web and desktop conversations in the signed-in account. If Claude account access is unavailable, use Allow Claude Account Access below. Background reads do not show Keychain prompts.")
+            : "Agent Board reads local Codex and Claude Code sessions to build your review queue. Your board and preferences stay on this Mac.\n\nOptional account features read usage, chat titles and reply status directly from OpenAI or Anthropic using your existing sign-in. Regular chat monitoring includes web and desktop conversations in the signed-in account. A ChatGPT latest-reply check can include message text; Agent Board keeps only reply identifiers, timestamps and completion status, then discards the response. If Claude account access is unavailable, use Allow Claude Account Access below. Background reads do not show Keychain prompts.")
         explanation.preferredMaxLayoutWidth = 440
         explanation.widthAnchor.constraint(equalToConstant: 440).isActive = true
         content.addArrangedSubview(explanation)

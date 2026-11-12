@@ -293,6 +293,131 @@ process.stdout.write(JSON.stringify({percentages: values.map(value => percentFor
         restarted.scan(self.now)
         self.assertEqual(restarted._next_attempts["claude"], self.now + 60)
 
+    def test_healthy_learned_schedule_preserves_age_without_premature_staleness(self):
+        reading = {"windows": [{"id": "weekly", "remaining_percent": 30, "reset_at": self.now + 86400}],
+                   "credits": {"status": "disabled", "unit": "USD"}}
+        outcomes = iter([UsageUnavailable("Limited.", code="rate_limited", retry_after=900), reading,
+                         UsageUnavailable("Unavailable.")])
+        attempts = []
+        def fetch():
+            attempts.append(True)
+            value = next(outcomes)
+            if isinstance(value, Exception): raise value
+            return value
+        source = UsageSource({"claude": fetch, "codex": lambda: reading})
+        source.scan(self.now)
+        recovered, codex = source.scan(self.now + 900)
+        self.assertEqual(recovered["next_refresh_at"], self.now + 1800)
+        self.assertEqual(recovered["stale_at"], self.now + 1860)
+        self.assertEqual(codex["stale_at"], self.now + 1020)
+        for age in (121, 300, 899):
+            current = source.scan(self.now + 900 + age)[0]
+            self.assertFalse(current["stale"])
+            self.assertFalse(current["credits"]["stale"])
+            self.assertEqual(current["updated_at"], self.now + 900)
+            self.assertEqual(current["credits"]["observed_at"], self.now + 900)
+            self.assertEqual(current["windows"][0]["remaining_percent"], 30)
+        self.assertEqual(len(attempts), 2)
+        failed = source.scan(self.now + 1800)[0]
+        self.assertTrue(failed["stale"])
+        self.assertTrue(failed["credits"]["stale"])
+        self.assertEqual(failed["updated_at"], self.now + 900)
+        self.assertEqual(failed["stale_at"], self.now + 1860)
+        self.assertGreater(failed["retry_at"], failed["stale_at"])
+
+    def test_passed_reset_remains_stale_during_healthy_slow_schedule(self):
+        reading = {"windows": [{"id": "weekly", "remaining_percent": 0, "reset_at": self.now + 450}],
+                   "credits": {"amount": 12, "unit": "credits"}}
+        values = iter([UsageUnavailable("Limited.", code="rate_limited"), reading])
+        def fetch():
+            value = next(values)
+            if isinstance(value, Exception): raise value
+            return value
+        source = UsageSource({"claude": fetch, "codex": lambda: []})
+        source.scan(self.now)
+        self.assertFalse(source.scan(self.now + 300)[0]["stale"])
+        current = source.scan(self.now + 451)[0]
+        self.assertEqual(current["next_refresh_at"], self.now + 600)
+        self.assertTrue(current["stale"])
+        self.assertTrue(current["credits"]["stale"])
+        self.assertEqual(current["windows"][0]["remaining_percent"], 0)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required to exercise the actual usage renderer")
+    def test_usage_renderer_shows_scheduled_age_and_expires_without_worker_updates(self):
+        program = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+function block(from, until) {
+  const begin = source.indexOf(from), end = source.indexOf(until, begin);
+  assert(begin >= 0 && end > begin);
+  return source.slice(begin, end);
+}
+function element() {
+  const classes = new Set(), children = new Map();
+  return {textContent:'', hidden:false, title:'', classes,
+    classList:{toggle(name, on) { if(on) classes.add(name); else classes.delete(name); }},
+    setAttribute(){}, querySelector(name) { if(!children.has(name)) children.set(name, element()); return children.get(name); }};
+}
+const nodes = new Map();
+function node(id) { if(!nodes.has(id)) nodes.set(id, element()); return nodes.get(id); }
+let clock = 1240;
+const context = {state:null, connected:true, attemptedConnection:true, now:()=>clock,
+  document:{getElementById:node, documentElement:{dataset:{}}}, elements:{usage:node('usage')},
+  usageWindows:['claude','codex'].map(provider=>({provider,window:'weekly',element:node(provider+'-weekly')})),
+  creditRows:['claude','codex'].map(id=>({id,element:node(id+'-credits')})),
+  resetCountdown:()=>'', localTimestamp:()=>''};
+const formats = ['percentFormat','creditFormat','dollarFormat'].map(name=>{
+  const result = source.match(new RegExp('^  const '+name+' = .*;$','m')); assert(result); return result[0];
+}).join('\n');
+vm.createContext(context);
+vm.runInContext(formats + '\n' + block('  function setText(', '  function make(')
+  + block('  function elapsed(', '  function projectName(')
+  + block('  function usageIsStale(', '  function render()'), context);
+const healthy = {id:'claude',available:true,stale:false,updated_at:1000,
+  next_refresh_at:1900,stale_at:1960,windows:[{id:'weekly',remaining_percent:30,reset_at:5000}],
+  credits:{status:'disabled',unit:'USD',observed_at:1000}};
+function render(row=healthy, sample=false) {
+  context.state={usage:[row],sample_mode:sample}; context.renderUsage();
+}
+render();
+assert.equal(node('claude-weekly').classes.has('stale'),false);
+assert.equal(node('claude-credits').classes.has('stale'),false);
+assert.equal(node('usage-claude-note').textContent,'Last reading 4m ago. Next check in 11m.');
+clock=1960; render(); assert.equal(node('claude-weekly').classes.has('stale'),false);
+clock=1961; render();
+assert.equal(node('claude-weekly').classes.has('stale'),true);
+assert.equal(node('claude-credits').classes.has('stale'),true);
+assert.match(node('usage-claude-note').textContent,/stale; last updated 16m ago/);
+assert.equal(node('claude-weekly').querySelector('.usage-value').textContent,'30% remaining');
+clock=1240; render({...healthy,stale:true,error_code:'rate_limited',retry_at:2200});
+assert.equal(node('claude-weekly').classes.has('stale'),true);
+assert.match(node('usage-claude-note').textContent,/rate limited.*Last reading 4m ago.*Retrying in 16m/);
+render({...healthy,windows:[{id:'weekly',remaining_percent:0,reset_at:1200}]});
+assert.equal(node('claude-weekly').classes.has('stale'),true);
+assert.equal(node('claude-weekly').querySelector('.usage-value').textContent,'0% remaining');
+render({...healthy,windows:[...healthy.windows,{id:'five_hour',remaining_percent:50,reset_at:1241}]});
+assert.equal(node('claude-weekly').classes.has('stale'),false);
+clock=1241; render({...healthy,windows:[...healthy.windows,{id:'five_hour',remaining_percent:50,reset_at:1241}]});
+assert.equal(node('claude-weekly').classes.has('stale'),true);
+assert.equal(node('claude-credits').classes.has('stale'),true);
+assert.match(node('usage-claude-note').textContent,/stale; last updated 4m ago/);
+clock=1240;
+render({...healthy,next_refresh_at:undefined,stale_at:undefined,source:'local_export'});
+assert.equal(node('claude-weekly').classes.has('stale'),true);
+context.connected=false; render(); assert.equal(node('claude-weekly').classes.has('stale'),true);
+context.connected=true; clock=2500; render(healthy,true);
+assert.equal(node('claude-weekly').classes.has('stale'),false);
+assert.equal(node('usage-claude-note').textContent,'Sample usage and balance.');
+process.stdout.write('PASS');
+"""
+        result = subprocess.run([shutil.which("node"), "-e", program,
+                                 str(Path(__file__).resolve().parents[1] / "static/app.js")],
+                                text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "PASS")
+
     def test_repeated_transient_failures_back_off_and_cap_retry_interval(self):
         calls = []
         def fetch():

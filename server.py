@@ -7,6 +7,8 @@ import hashlib
 import json
 import logging
 import os
+import plistlib
+import re
 import secrets
 import select
 import signal
@@ -53,6 +55,34 @@ LOG = logging.getLogger("agent-board")
 SNAPSHOT_LOCK_TIMEOUT = 1.0
 STATUS_HEARTBEAT_SECONDS = 15.0
 PROJECT_HEARTBEAT_SECONDS = 45.0
+
+
+def _runtime_build_label():
+    if not getattr(sys, "frozen", False):
+        return "Development build"
+    try:
+        executable = Path(sys.executable)
+        contents = executable.parent.parent
+        if executable.parent.name != "MacOS" or contents.name != "Contents":
+            return "Version unavailable"
+        with (contents / "Info.plist").open("rb") as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            return "Version unavailable"
+        info = plistlib.loads(raw)
+        version, build = info.get("CFBundleShortVersionString"), info.get("CFBundleVersion")
+        if (not isinstance(version, str) or len(version) > 32
+                or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", version)
+                or not isinstance(build, str) or not re.fullmatch(r"[1-9][0-9]{0,8}", build)):
+            return "Version unavailable"
+        return f"Version {version} (build {build})"
+    except Exception:
+        return "Version unavailable"
+
+
+# Capture the running package's identity once, rather than reading a replacement
+# bundle later and labeling an older collector with the newer build number.
+BUILD_LABEL = _runtime_build_label()
 
 
 class _UnselectedSource:
@@ -463,6 +493,12 @@ class Monitor:
                     health = source_health.get(source_id)
                     unavailable = health is None or health.get("available") is not True
                     detail = health.get("detail") if health else None
+                    owns_saved_event = getattr(desktop_chat, "owns_saved_event", None)
+                    if (callable(owns_saved_event) and not item.get("catalog_only")
+                            and not owns_saved_event(item)):
+                        unavailable = True
+                        detail = "This saved chat belongs to a different or unconfirmed sign-in."
+                        item["notification_eligible"] = False
                     if (desktop_chat is not None and not unavailable and item["status"] == "cooking"
                             and item["id"] not in desktop_chat.cooking):
                         unavailable = True
@@ -671,6 +707,7 @@ class Handler(BaseHTTPRequestHandler):
             if name == "about/index.html":
                 # About describes the running build, including its storage and
                 # credential boundaries, without exposing a user's file path.
+                content = content.replace(b"<!-- runtime-build -->", BUILD_LABEL.encode("ascii"))
                 content = content.replace(b" data-direct-only", b" hidden" if self.monitor.sandbox else b"")
                 content = content.replace(b" data-sandbox-only hidden", b"" if self.monitor.sandbox else b" hidden")
                 content = content.replace(b" data-store-excluded", b" hidden" if self.monitor.store_profile else b"")

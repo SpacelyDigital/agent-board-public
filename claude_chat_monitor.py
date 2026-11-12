@@ -200,6 +200,8 @@ class ClaudeChatConversationSource:
         if not isinstance(snapshot, dict):
             self._transient_error = "reader"
             return self.health()
+        if snapshot.get("error_code") == "incomplete_status":
+            self._transient_error = "incomplete_status"
         try:
             observed = snapshot.get("observed_at")
             scope = snapshot.get("account_scope")
@@ -353,6 +355,21 @@ class ClaudeChatConversationSource:
             self._transient_error = "reader"
         return self.health()
 
+    def owns_saved_event(self, item):
+        """Preserve saved replies without assigning them to another sign-in."""
+        scope = self._state.get("account_scope") if self._state is not None else None
+        ident = item.get("id")
+        turn = item.get("turn_id")
+        if (not isinstance(scope, str) or not ACCOUNT_SCOPE.fullmatch(scope)
+                or not isinstance(ident, str) or not ident.startswith(DESKTOP_CHAT_ID_PREFIX)
+                or not isinstance(turn, str)):
+            return False
+        uuid = ident[len(DESKTOP_CHAT_ID_PREFIX):]
+        if _chat_id(uuid) is None:
+            return False
+        prefix = f"claude-chat:{scope}:{uuid}:"
+        return turn.startswith(prefix) and len(turn) > len(prefix)
+
     def open_chats(self, now):
         if (not self.available or self.observed_at is None or not 0 <= now - self.observed_at <= 15):
             return {}
@@ -365,6 +382,8 @@ class ClaudeChatConversationSource:
         return {"id": self.source_id, "name": "Claude chats", "available": self.available,
                 "last_seen": self.observed_at,
                 "detail": ("The local Claude chat checkpoint could not be read or saved." if self._checkpoint_error or self._transient_error == "checkpoint" else
+                           "Claude did not include current chat status. Using the previous reading while retrying." if self._transient_error == "incomplete_status" and self.available else
+                           "Claude did not include current chat status. Retrying automatically." if self._transient_error == "incomplete_status" else
                            "Monitoring Claude chats using their account identities." if self.available else
                            "Claude chat metadata is unavailable. Check its existing sign-in.")}
 

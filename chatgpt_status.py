@@ -190,6 +190,9 @@ class ChatGPTStatusReader:
         self._credentials: tuple[str, str | None] | None = None
         self._fingerprint: bytes | None = None
         self._account_identity: str | None = None
+        self._credential_rejected = False
+        self._rejected_fingerprint: bytes | None = None
+        self._ownership_revision = 0
         self._generation = 0
         self._cache: dict[str, dict] = {}
         self._discovered: dict[str, dict] = {}
@@ -223,6 +226,8 @@ class ChatGPTStatusReader:
             if fingerprint != self._fingerprint:
                 self._generation += 1
                 self._fingerprint = fingerprint
+                self._credential_rejected = fingerprint is not None and fingerprint == self._rejected_fingerprint
+                self._ownership_revision += 1
                 self._cache.clear()
                 self._discovered.clear()
                 self._discovered_at = None
@@ -346,6 +351,12 @@ class ChatGPTStatusReader:
         with self._lock:
             return self._account_identity
 
+    def current_account_identity(self) -> str | None:
+        """Ownership requires present credentials without a known account rejection."""
+        with self._lock:
+            return (self._account_identity if not self._closed and self._credentials is not None
+                    and not self._credential_rejected else None)
+
     def _discovery_fresh(self, now: float) -> bool:
         return (not self._closed and self._credentials is not None and self._discovered_at is not None
                 and 0 <= now - self._discovered_at <= 30)
@@ -377,6 +388,7 @@ class ChatGPTStatusReader:
                         self._status_dispatches += 1
                     generation = self._generation
                     credentials = self._credentials
+                    ownership_revision = self._ownership_revision
                     self._inflight.add((generation, identifier))
                     self._last_attempt[identifier] = self._clock()
                     reply_revision = (self._reply_candidates.get(identifier)
@@ -411,6 +423,18 @@ class ChatGPTStatusReader:
                     self._inflight.discard((generation, identifier))
                     if generation != self._generation or self._closed:
                         continue
+                    if (http_status == 401 or reply_http_status == 401
+                            or identifier == _CATALOG_JOB and http_status == 403):
+                        self._credential_rejected = True
+                        self._rejected_fingerprint = self._fingerprint
+                        self._ownership_revision += 1
+                    elif (identifier == _CATALOG_JOB and error is None
+                          and ownership_revision == self._ownership_revision):
+                        # A successful account read started before a rejection
+                        # cannot clear it through a late callback.
+                        self._credential_rejected = False
+                        if self._rejected_fingerprint == self._fingerprint:
+                            self._rejected_fingerprint = None
                     if identifier == _CATALOG_JOB:
                         if error is None:
                             self._discovered = metadata

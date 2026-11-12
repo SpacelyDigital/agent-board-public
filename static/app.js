@@ -415,6 +415,17 @@
     });
   }
 
+  function usageIsStale(provider, credit = null) {
+    if (state?.sample_mode === true) return false;
+    if (!connected || provider?.stale || credit?.stale) return true;
+    const observed = [provider?.updated_at, credit?.observed_at].filter(value => Number.isFinite(value) && value > 0);
+    const updated = observed.length ? Math.min(...observed) : null;
+    const deadline = updated && Number.isFinite(provider?.stale_at) && provider.stale_at >= updated
+      ? provider.stale_at : updated ? updated + 120 : null;
+    const resetPassed = provider?.windows?.some(window => Number.isFinite(window.reset_at) && window.reset_at > 0 && window.reset_at <= now());
+    return !!resetPassed || (deadline !== null && now() > deadline);
+  }
+
   function renderUsage() {
     for (const item of usageWindows) {
       const provider = state?.usage?.find(source => source.id === item.provider);
@@ -425,7 +436,7 @@
       const reset = typeof window?.reset_at === "number" && Number.isFinite(window.reset_at) && window.reset_at > 0 ? window.reset_at : null;
       const loading = (provider?.loading && connected) || (!state && !attemptedConnection);
       const localReading = provider?.source === "local_record" || provider?.source === "local_export";
-      const stale = hasReading && (!connected || provider?.stale || !provider?.available);
+      const stale = hasReading && (usageIsStale(provider) || !provider?.available);
       const value = item.element.querySelector(".usage-value");
       const resetText = item.element.querySelector(".usage-reset");
       item.element.classList.toggle("stale", !!stale);
@@ -448,7 +459,7 @@
       const hasBalance = credit?.unit === (id === "claude" ? "USD" : "credits") && Number.isFinite(credit.amount);
       const creditsDisabled = id === "claude" && credit?.status === "disabled" && !hasBalance;
       const loading = !hasBalance && !creditsDisabled && ((provider?.loading && connected) || (!state && !attemptedConnection));
-      const stale = (hasBalance || creditsDisabled) && !sample && (!connected || provider?.stale || credit.stale === true);
+      const stale = (hasBalance || creditsDisabled) && !sample && usageIsStale(provider, credit);
       const balance = id === "claude" ? dollarFormat : creditFormat;
       element.classList.toggle("unavailable", !hasBalance && !creditsDisabled);
       element.classList.toggle("stale", stale);
@@ -467,7 +478,7 @@
       const hasCredits = credit?.unit === (id === "claude" ? "USD" : "credits") && (Number.isFinite(credit.amount) || (id === "claude" && credit.status === "disabled"));
       const updated = [hasUsage ? provider?.updated_at : null, hasCredits ? credit?.observed_at : null].filter(value => Number.isFinite(value) && value > 0);
       const observed = updated.length ? Math.min(...updated) : null;
-      const stale = !connected || provider?.stale || credit?.stale;
+      const stale = usageIsStale(provider, credit);
       const local = provider?.source === "local_record" || provider?.source === "local_export";
       const sample = state?.sample_mode === true;
       const rateLimited = provider?.error_code === "rate_limited";
@@ -482,6 +493,11 @@
       else if (!connected && attemptedConnection) text = "The monitor is disconnected.";
       else if (provider?.error) text = provider.error;
       else if (local && observed) text = `Observed locally ${elapsed(observed)} ago.`;
+      else if (observed && Number.isFinite(provider?.next_refresh_at) && provider.next_refresh_at - observed > 120) {
+        const nextCheck = provider.next_refresh_at > now()
+          ? `Next check in ${Math.max(1, Math.ceil((provider.next_refresh_at - now()) / 60))}m.` : "";
+        text = [`Last reading ${elapsed(observed)} ago.`, nextCheck].filter(Boolean).join(" ");
+      }
       else if (provider && !provider.available && !provider.loading) text = "No usage reading is available.";
       note.hidden = !text;
       note.classList.toggle("stale", !!stale || rateLimited);

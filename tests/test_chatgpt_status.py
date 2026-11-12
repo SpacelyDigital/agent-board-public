@@ -198,6 +198,110 @@ class StatusQueueTests(unittest.TestCase):
         self.assertEqual(readings[ids[0]]['http_status'], 403)
         self.assertTrue(all(readings[identifier]['status'] == 'IS_STREAMING' for identifier in ids[1:]))
         self.assertEqual(reader._backoff_until, 0)
+        self.assertIsNotNone(reader.current_account_identity())
+
+    def test_current_ownership_requires_present_credentials_but_retains_lifecycle_scope(self):
+        reader = self.reader()
+        reader.scan([])
+        self.await_condition(lambda: reader._workers == 0)
+        original = reader.account_identity()
+        self.assertEqual(reader.current_account_identity(), original)
+        (self.root / 'auth.json').unlink()
+        reader.scan([])
+        self.assertIsNone(reader.current_account_identity())
+        self.assertEqual(reader.account_identity(), original)
+        self.write_auth()
+        reader.scan([])
+        self.await_condition(lambda: reader._workers == 0)
+        self.assertEqual(reader.current_account_identity(), original)
+        reader.close()
+        self.assertIsNone(reader.current_account_identity())
+        self.assertEqual(reader.account_identity(), original)
+
+    def test_account_auth_rejection_fences_ownership_until_a_valid_current_read(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                now = [1000.0]
+                reject = [True]
+                def metadata(*_):
+                    if reject[0]:
+                        raise ProviderRequestError('http', status)
+                    return {}
+                reader = self.reader(metadata_request=metadata, clock=lambda: now[0])
+                reader.scan([])
+                self.await_condition(lambda: reader._workers == 0)
+                scope = reader.account_identity()
+                self.assertIsNone(reader.current_account_identity())
+                now[0] += 31
+                reject[0] = False
+                reader.scan([])
+                self.await_condition(lambda: reader._workers == 0)
+                self.assertEqual(reader.current_account_identity(), scope)
+                reader.close()
+
+    def test_late_success_before_auth_rejection_cannot_restore_ownership(self):
+        now = [1000.0]
+        entered = threading.Event()
+        release = threading.Event()
+        def metadata(*_):
+            entered.set()
+            release.wait(2)
+            return {}
+        def request(*_):
+            raise ProviderRequestError('http', 401)
+        reader = self.reader(request=request, metadata_request=metadata, clock=lambda: now[0])
+        self.addCleanup(release.set)
+        reader.scan([str(uuid.uuid4())])
+        self.assertTrue(entered.wait(1))
+        self.await_condition(lambda: reader._credential_rejected)
+        scope = reader.account_identity()
+        release.set()
+        self.await_condition(lambda: reader._workers == 0)
+        self.assertIsNone(reader.current_account_identity())
+        self.assertEqual(reader.account_identity(), scope)
+        now[0] += 31
+        reader.scan([])
+        self.await_condition(lambda: reader._workers == 0)
+        self.assertEqual(reader.current_account_identity(), scope)
+
+    def test_reply_auth_rejection_is_scoped_to_current_credentials(self):
+        now = [1000.0]
+        def reply(*_):
+            raise ProviderRequestError('http', 401)
+        identifier = str(uuid.uuid4())
+        reader = self.reader(request=lambda *_: 'COMPLETE', reply_request=reply, clock=lambda: now[0])
+        reader.scan([identifier], reply_candidates={identifier: now[0]})
+        self.await_condition(lambda: reader._workers == 0)
+        scope = reader.account_identity()
+        self.assertIsNone(reader.current_account_identity())
+        self.write_auth('refreshed-token')
+        reader.scan([])
+        self.await_condition(lambda: reader._workers == 0)
+        self.assertEqual(reader.current_account_identity(), scope)
+
+    def test_missing_file_cannot_clear_rejection_of_identical_returning_credentials(self):
+        rejected = [True]
+        gate = threading.Event()
+        def metadata(*_):
+            if rejected[0]:
+                raise ProviderRequestError('http', 401)
+            gate.wait(2)
+            return {}
+        reader = self.reader(metadata_request=metadata)
+        self.addCleanup(gate.set)
+        reader.scan([])
+        self.await_condition(lambda: reader._workers == 0)
+        scope = reader.account_identity()
+        self.assertIsNone(reader.current_account_identity())
+        (self.root / 'auth.json').unlink()
+        reader.scan([])
+        self.write_auth()
+        rejected[0] = False
+        reader.scan([])
+        self.assertIsNone(reader.current_account_identity())
+        gate.set()
+        self.await_condition(lambda: reader._workers == 0)
+        self.assertEqual(reader.current_account_identity(), scope)
 
     def test_same_account_token_refresh_preserves_account_scope(self):
         reader = self.reader()

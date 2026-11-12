@@ -94,7 +94,8 @@ def _validate_url(url: str, purpose: str) -> None:
         valid = query == {"limit": "100"}
     else:
         cursor = query.get("cursor")
-        valid = (set(query) <= {"limit", "cursor"} and query.get("limit") in ("1", "100")
+        valid = (set(query) <= {"limit", "cursor", "newest_first"} and query.get("limit") in ("1", "100")
+                 and ("newest_first" not in query or query["newest_first"] == "true" and query["limit"] == "100")
                  and (cursor is None or (query["limit"] == "100" and 0 < len(cursor) <= 4096
                       and not any(ord(char) < 32 or ord(char) == 127 for char in cursor))))
     if not valid:

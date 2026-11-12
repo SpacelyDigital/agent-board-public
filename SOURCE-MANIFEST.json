@@ -60,8 +60,8 @@
     },
     {
       "path": "MacApp.swift",
-      "bytes": 85925,
-      "sha256": "5d7029f9f507f6fb7c6a8059ff9ce9e68ed8544287d1419aed7d445ac18157b3",
+      "bytes": 89229,
+      "sha256": "e25c8039e64b0f72e5e0c8818e38978f018b0fc124e69cb99c088375185ba1e9",
       "mode": 420
     },
     {
@@ -72,8 +72,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 13472,
-      "sha256": "56394e690d7f207807498c9996321a1e20f64b5e1536054ea03d23db79191d46",
+      "bytes": 14888,
+      "sha256": "318c7c27597687b7062d48d2d9a7d7a547635dd07ef1f12db9fc2a4c76c6ebaa",
       "mode": 420
     },
     {
@@ -132,8 +132,8 @@
     },
     {
       "path": "chatgpt_monitor.py",
-      "bytes": 22289,
-      "sha256": "9ec1889c6f14fc7d3e63f47aa78881bcabc88cf3ee95bc714bd2880302784eff",
+      "bytes": 23096,
+      "sha256": "737b729499f32e661ffff9506ff186cb066794f364b22805a0d34b310480ef3e",
       "mode": 420
     },
     {
@@ -150,26 +150,26 @@
     },
     {
       "path": "chatgpt_status.py",
-      "bytes": 26036,
-      "sha256": "d6f2079fe2ec5b88e7298916c4e60783037bfdd0fa9f29f2fc5c18928f474d28",
+      "bytes": 27555,
+      "sha256": "469e96ef07f7ebdf9c2f5b198dd92d536c814a818d408690d13437282134c9e2",
       "mode": 420
     },
     {
       "path": "claude_chat_monitor.py",
-      "bytes": 20227,
-      "sha256": "063cbb9fea19b6305432c4390dda11f768d7be803b49783fd9a8d346de1d4142",
+      "bytes": 21423,
+      "sha256": "1a643a44e1dcfd4e7be51f5c7733db189d608633870e94ad74e91919ef2e8ede",
       "mode": 420
     },
     {
       "path": "claude_chat_source.py",
-      "bytes": 18399,
-      "sha256": "6c94a4c74f6085b35c470a4a563b763cbbf0deda08a72bea1d656a5983bfbfc1",
+      "bytes": 20275,
+      "sha256": "8b87a046acfc1cd51b755f03dbcc2d1cfbc9a7ced8d6e602afcbfa16fe19e909",
       "mode": 420
     },
     {
       "path": "claude_project_source.py",
-      "bytes": 32086,
-      "sha256": "ca05b3b117526543716572aa159b8b417ad08913e224f0b4d5f87f7abcc38225",
+      "bytes": 33370,
+      "sha256": "7d1c8c6f1f80051a43baab46be06d5e91227b503729580ecb62a2a74e8bc91d2",
       "mode": 420
     },
     {
@@ -180,8 +180,8 @@
     },
     {
       "path": "codex_source.py",
-      "bytes": 42082,
-      "sha256": "ea3b729f3afde7569f0463f43618e8d94f1483e675585dbe85aa15a8f3f85900",
+      "bytes": 44756,
+      "sha256": "5a46f281e9dfc71622e0ea93b3fc70c502839934755fb77a2e4385072a58fded",
       "mode": 420
     },
     {
@@ -462,8 +462,8 @@
     },
     {
       "path": "privacy_network.py",
-      "bytes": 6255,
-      "sha256": "18c4d28a6992ea93c8fd507b1ffed0fc38be6cc1f9544f3a81a799e132f32884",
+      "bytes": 6385,
+      "sha256": "692601bfe01441029e60cb5f6020a9ee7598712fccfe0a10bb7084a10aba6259",
       "mode": 420
     },
     {
@@ -486,8 +486,8 @@
     },
     {
       "path": "server.py",
-      "bytes": 72084,
-      "sha256": "1c4f3899937ca8b07a0e28a61af70544c4d6001fe86ffa1093e194572408a90a",
+      "bytes": 73837,
+      "sha256": "84056e854ac0d88da37cd18d155b0aecef0e3230fac94976573edd091e5b1dcb",
       "mode": 420
     },
     {
@@ -498,8 +498,8 @@
     },
     {
       "path": "static/about/about.css",
-      "bytes": 2945,
-      "sha256": "15367e4195deb0f4e9c2aa049ca0a0ce4db50c65f6be41911afe43e7c5e6af31",
+      "bytes": 3031,
+      "sha256": "c8d9807d0994f58ebb0c890610961947993d367eca596f733c3430cc668bc84a",
       "mode": 420
     },
     {
@@ -510,8 +510,8 @@
     },
     {
       "path": "static/about/index.html",
-      "bytes": 8162,
-      "sha256": "3e523d26e77a4febd6eedad830da873eb76cf8f0eecfa4683edec5038ec6beb8",
+      "bytes": 8255,
+      "sha256": "74ae8a52773e8b68110880d21f22c36a4d1a7912f8c3be02c9b669a36259b39d",
       "mode": 420
     },
     {
@@ -528,14 +528,14 @@
     },
     {
       "path": "static/about/store.html",
-      "bytes": 2718,
-      "sha256": "8c8f8d07a2eb9e52d23a766fd06f64a246103068c11085b3d240d6986c0e7c57",
+      "bytes": 2811,
+      "sha256": "7324f49636eb423d6a99117aaf0e8cc0c220fd5e0f13568eceeb81caba39fd78",
       "mode": 420
     },
     {
       "path": "static/app.js",
-      "bytes": 56362,
-      "sha256": "9dde633c4ccd735b07c8b9f83ecbcf5dc162c0806789c803725c63a295989cd4",
+      "bytes": 57433,
+      "sha256": "939e2f78c912852dbee2c4cd6628afbeb1e6d4c50524bf9ea9c412246fb3420e",
       "mode": 420
     },
     {
@@ -810,8 +810,8 @@
     },
     {
       "path": "tests/native_history_notification_smoke.py",
-      "bytes": 7145,
-      "sha256": "c7fa885c6d071e3179f427012a28f62a96b3ecec5106e089292c28d3148ff28c",
+      "bytes": 14266,
+      "sha256": "59b799fc6d7fd071ada400985aa3f671b23e0f39dec079e9bf65513464e04a69",
       "mode": 420
     },
     {
@@ -966,8 +966,8 @@
     },
     {
       "path": "tests/test_chatgpt_monitor.py",
-      "bytes": 37846,
-      "sha256": "1f54908d4efae50846dcdebfb5d250f38c46d378280ba1f0c02277958a081a76",
+      "bytes": 37915,
+      "sha256": "56af774f5876830f9c0acec241143d98b6b6f467aeb666a0cad67eac5b469667",
       "mode": 420
     },
     {
@@ -978,8 +978,8 @@
     },
     {
       "path": "tests/test_chatgpt_status.py",
-      "bytes": 18669,
-      "sha256": "2437987e5397a521aabf756d666454c7856f269371ee5426629e568e163301b4",
+      "bytes": 23268,
+      "sha256": "d418001ba275519d43261e8bd8e17efc6550d5d39aa9537f46a0c71bb2eb9917",
       "mode": 420
     },
     {
@@ -990,20 +990,20 @@
     },
     {
       "path": "tests/test_claude_chat_monitor.py",
-      "bytes": 27554,
-      "sha256": "e369bb90233ec65e4a16d09701f6a445c51861e355fc9c3ef5d049ae814ad93d",
+      "bytes": 29223,
+      "sha256": "34e56e9526106bbe6e321e2171fb4603bb602282122412695cadb4a3e2f641d2",
       "mode": 420
     },
     {
       "path": "tests/test_claude_chat_source.py",
-      "bytes": 19555,
-      "sha256": "7daf257330f15ac1206deee4aa4a64afb49a1e3d348ffaeca1857ff744de2dff",
+      "bytes": 28316,
+      "sha256": "da7feb92d53e230bc4cba2b9a2cf4798e8370f0e6e8ff0625ba0dca7f042a38d",
       "mode": 420
     },
     {
       "path": "tests/test_claude_desktop_chats.py",
-      "bytes": 26293,
-      "sha256": "426ee962bd7d8292b9199c651d0ed014a18454da5321ab382e434d35eb6bce9d",
+      "bytes": 38388,
+      "sha256": "5cee16e5be2a5915103f00f1a0d8e719ae44664b1561f7e2cac5cadeba3043ca",
       "mode": 420
     },
     {
@@ -1014,14 +1014,14 @@
     },
     {
       "path": "tests/test_claude_project.py",
-      "bytes": 39648,
-      "sha256": "fb007907a81d6b6fa30abfdc846f1c13c88a943da3cf7ed3452fb96b9ee5b79b",
+      "bytes": 44301,
+      "sha256": "73d78a2a5cc0523b33c7b0b3464cffb9f1a205312800425ac6f1e26214395239",
       "mode": 420
     },
     {
       "path": "tests/test_codex.py",
-      "bytes": 11535,
-      "sha256": "20826fd242c3c9401dc417267b8c14199bd28a1dc7d611390c15a78f12d8b404",
+      "bytes": 25453,
+      "sha256": "c47857e1c66df9d7a1bac05601000acce97b299c610820b910a29f6d7708c22b",
       "mode": 420
     },
     {
@@ -1092,8 +1092,8 @@
     },
     {
       "path": "tests/test_privacy_network.py",
-      "bytes": 13653,
-      "sha256": "88ddad03636ed308ffdabdfe5978f1d17c55a04eee2a65561071cbe29cb333a1",
+      "bytes": 14712,
+      "sha256": "003e1b6b18bdfccc84ae4185d129a29dd4b385721cec9061ed6df3d1c1a189b9",
       "mode": 420
     },
     {
@@ -1140,8 +1140,8 @@
     },
     {
       "path": "tests/test_store_branding.py",
-      "bytes": 4854,
-      "sha256": "f472b7b404dc27dc8022f614ed053ff7bdcad652eb9c2f0b91c99e4dc0bd6157",
+      "bytes": 8247,
+      "sha256": "2c087e0a7880241d3ccc9a784819761a4176bb6c3273de788b4b42d9628da1ee",
       "mode": 420
     },
     {
@@ -1170,8 +1170,8 @@
     },
     {
       "path": "tests/test_usage.py",
-      "bytes": 29100,
-      "sha256": "b3911e6fb7664547b5bb873218ae140f38d132f38c5f97f7e12e01e740c86cf5",
+      "bytes": 36528,
+      "sha256": "eb08b649ebec5aeeb1f0d31039fa55980b9e32e92adfdffecfb1561803033c10",
       "mode": 420
     },
     {
@@ -1200,8 +1200,8 @@
     },
     {
       "path": "usage_source.py",
-      "bytes": 27968,
-      "sha256": "e4b75c4aa855eb1ebac9932b32f3366220098041ec0c03a697db89ce108d0f79",
+      "bytes": 28533,
+      "sha256": "f926d1b3b92a24fa4c3404b2224780c81838884b43cfdcbcbaca007c3ba07888",
       "mode": 420
     }
   ]

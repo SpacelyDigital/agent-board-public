@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,12 +14,228 @@ from unittest.mock import patch
 import server
 from board_store import Conflict
 from chat_links import UnsupportedChatLink, open_command
+from chatgpt_status import ChatGPTStatusReader
+from privacy_network import ProviderRequestError
+from tests import test_chatgpt_monitor as chatgpt_fixtures
+from tests import test_claude_chat_monitor as claude_fixtures
 
 
 FIRST = "11111111-1111-4111-8111-111111111111"
 SECOND = "22222222-2222-4222-8222-222222222222"
 LAUNCH = "ABCDEF12-3456-4789-8123-123456789ABC"
 WINDOW = "window:0123456789abcdef0123456789abcdef"
+
+
+class AccountEventSnapshotTests(unittest.TestCase):
+    """Use real monitors, SQLite and snapshot decoration with fake providers."""
+
+    def attention(self, provider, status="ready", account_scope=None):
+        cls = (claude_fixtures.ClaudeChatMonitorTests if provider == "claude"
+               else chatgpt_fixtures.ChatGPTMonitorTests)
+        fixture = cls()
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        if provider == "claude":
+            fixture.set_row()
+            fixture.scan()
+            if status == "ready":
+                fixture.set_row(last_settled_at=fixture.now + 2,
+                                current_leaf_message_uuid=claude_fixtures.LEAF_B, updated_at=fixture.now + 2)
+            else:
+                fixture.set_row(live_status="running", live_status_started_at=fixture.now + 1,
+                                updated_at=fixture.now + 1, needs_input=True)
+            fixture.scan(3)
+        else:
+            fixture.enable_markers()
+            if account_scope is not None:
+                fixture.reader.account = account_scope
+            fixture.reader.set("COMPLETE", fixture.now)
+            fixture.reader.reply(FIRST, "a", fixture.now - 100, fixture.now - 90, fixture.now)
+            fixture.scan()
+            if status == "ready":
+                fixture.reader.set("COMPLETE", fixture.now + 3)
+                fixture.reader.reply(FIRST, "b", fixture.now + 1, fixture.now + 2, fixture.now + 3)
+                fixture.scan(3)
+            else:
+                fixture.reader.replies = {}
+                fixture.reader.set("IS_STREAMING", fixture.now + 1)
+                fixture.scan(1)
+                fixture.reader.set("FAILURE", fixture.now + 3)
+                fixture.scan(3)
+        self.assertEqual(fixture.item()["status"], status)
+        return fixture
+
+    def snapshot(self, fixture, provider, offset, ident=FIRST):
+        with patch.object(server, "CodexSource"), patch.object(server, "ClaudeSource"), \
+             patch.object(server, "UsageSource", side_effect=AssertionError("Account usage read")), \
+             patch.object(server, "ClaudeProjectSource", side_effect=AssertionError("Account project read")):
+            monitor = server.Monitor(fixture.root, **{provider + "_chat_source": fixture.source})
+        monitor.sources = []
+        if provider == "claude":
+            fixture.reader.snapshot["observed_at"] = fixture.now + offset
+        with patch.object(server.time, "time", return_value=fixture.now + offset):
+            monitor.scan()
+            state = monitor.snapshot()
+        self.assertTrue(next(row for row in state["sources"] if row["id"] == provider + "_chats")["available"])
+        return next(row for group in ("sessions", "history", "background") for row in state[group]
+                    if row["key"] == provider + ":desktop_chat:" + ident)
+
+    @staticmethod
+    def change_account(fixture, provider, scope):
+        if provider == "claude":
+            fixture.reader.snapshot.update(account_scope=scope, conversations={})
+        else:
+            fixture.reader.account = scope
+            fixture.reader.readings = {}
+            fixture.reader.replies = {}
+            fixture.reader.discovery = {}
+            fixture.reader.discovery_ok = True
+
+    def test_completed_and_input_events_are_fenced_across_account_change_and_restart(self):
+        for provider in ("claude", "chatgpt"):
+            for status in ("ready", "needs_you"):
+                with self.subTest(provider=provider, status=status):
+                    fixture = self.attention(provider, status)
+                    before = self.snapshot(fixture, provider, 4)
+                    self.assertFalse(before["source_unavailable"])
+                    self.assertTrue(before["notification_eligible"])
+                    self.change_account(fixture, provider, "b" * 64)
+                    after = self.snapshot(fixture, provider, 6)
+                    self.assertEqual(after["event_id"], before["event_id"])
+                    self.assertEqual(after["status"], status)
+                    self.assertTrue(after["source_unavailable"])
+                    self.assertFalse(after["notification_eligible"])
+                    self.assertIn("sign-in", after["source_unavailable_detail"])
+                    (fixture.restart if provider == "claude" else fixture.restart_markers)()
+                    restarted = self.snapshot(fixture, provider, 7)
+                    self.assertTrue(restarted["source_unavailable"])
+                    self.assertFalse(restarted["notification_eligible"])
+                    self.change_account(fixture, provider, "a" * 64)
+                    restored = self.snapshot(fixture, provider, 8)
+                    self.assertEqual(restored["event_id"], before["event_id"])
+                    self.assertFalse(restored["source_unavailable"])
+                    self.assertTrue(restored["notification_eligible"])
+
+    def test_reviewed_history_survives_account_fence_and_recovery(self):
+        for provider in ("claude", "chatgpt"):
+            with self.subTest(provider=provider):
+                fixture = self.attention(provider)
+                before = fixture.item()
+                fixture.store.review(before["key"], before["event_id"])
+                self.change_account(fixture, provider, "b" * 64)
+                after = self.snapshot(fixture, provider, 6)
+                self.assertTrue(after["source_unavailable"])
+                self.assertFalse(after["notification_eligible"])
+                self.assertEqual(after["reviewed_event"], before["event_id"])
+                self.change_account(fixture, provider, "a" * 64)
+                restored = self.snapshot(fixture, provider, 7)
+                self.assertFalse(restored["source_unavailable"])
+                self.assertFalse(restored["notification_eligible"])
+                self.assertEqual(restored["reviewed_event"], before["event_id"])
+
+    def test_missing_or_wrong_conversation_ownership_is_unconfirmed(self):
+        for provider in ("claude", "chatgpt"):
+            with self.subTest(provider=provider):
+                fixture = self.attention(provider)
+                fixture.store.apply([{"provider": provider, "id": "desktop_chat:" + SECOND,
+                    "source_kind": "desktop_chat", "status": "ready", "title": "Saved fixture",
+                    "updated_at": fixture.now + 2, "event_id": "unbound-fixture"}], fixture.now + 3)
+                unbound = self.snapshot(fixture, provider, 4, SECOND)
+                self.assertTrue(unbound["source_unavailable"])
+                self.assertFalse(unbound["notification_eligible"])
+                # Even an account-bound marker must belong to this exact chat.
+                fixture.store.apply([{"provider": provider, "id": "desktop_chat:" + SECOND,
+                    "source_kind": "desktop_chat", "status": "ready", "title": "Saved fixture",
+                    "updated_at": fixture.now + 5, "event_id": "wrong-chat-fixture",
+                    "turn_id": fixture.item()["turn_id"]}], fixture.now + 5)
+                wrong_chat = self.snapshot(fixture, provider, 6, SECOND)
+                self.assertTrue(wrong_chat["source_unavailable"])
+                self.assertFalse(wrong_chat["notification_eligible"])
+
+    def test_verified_event_from_new_account_is_eligible(self):
+        for provider in ("claude", "chatgpt"):
+            with self.subTest(provider=provider):
+                fixture = self.attention(provider)
+                self.change_account(fixture, provider, "b" * 64)
+                self.snapshot(fixture, provider, 6)
+                if provider == "claude":
+                    fixture.set_row(SECOND, live_status="running", live_status_started_at=fixture.now + 7,
+                                    updated_at=fixture.now + 7)
+                else:
+                    fixture.add(SECOND)
+                    fixture.reader.set("IS_STREAMING", fixture.now + 7, SECOND)
+                active = self.snapshot(fixture, provider, 8, SECOND)
+                self.assertEqual(active["status"], "cooking")
+                self.assertFalse(active["source_unavailable"])
+                if provider == "claude":
+                    fixture.set_row(SECOND, last_settled_at=fixture.now + 9,
+                                    current_leaf_message_uuid=claude_fixtures.LEAF_C, updated_at=fixture.now + 9)
+                else:
+                    fixture.reader.set("COMPLETE", fixture.now + 10, SECOND)
+                    fixture.reader.reply(SECOND, "c", fixture.now + 7, fixture.now + 9, fixture.now + 10)
+                ready = self.snapshot(fixture, provider, 10, SECOND)
+                self.assertEqual(ready["status"], "ready")
+                self.assertFalse(ready["source_unavailable"])
+                self.assertTrue(ready["notification_eligible"])
+
+    def test_real_reader_signout_rejection_and_recovery_fence_snapshot_without_losing_event(self):
+        scope = hashlib.sha256(b"fixture-account").hexdigest()
+        fixture = self.attention("chatgpt", account_scope=scope)
+        event = fixture.item()["event_id"]
+        current = [fixture.now + 4]
+        credentials = [("fixture-token", "fixture-account")]
+        reject = [False]
+        def metadata(*_):
+            if reject[0]:
+                raise ProviderRequestError("http", 401)
+            return {}
+        reader = ChatGPTStatusReader(fixture.root, request=lambda *_: "COMPLETE",
+            metadata_request=metadata, reply_request=lambda *_: None, clock=lambda: current[0])
+        self.addCleanup(reader.close)
+        fixture.source.status_reader = reader
+        def settled():
+            deadline = time.monotonic() + 2
+            while reader._workers and time.monotonic() < deadline:
+                time.sleep(.005)
+            self.assertEqual(reader._workers, 0)
+        with patch("chatgpt_status._read_credentials", side_effect=lambda _: credentials[0]):
+            before = self.snapshot(fixture, "chatgpt", 4)
+            settled()
+            self.assertFalse(before["source_unavailable"])
+            self.assertTrue(before["notification_eligible"])
+            credentials[0] = None
+            current[0] = fixture.now + 5
+            signed_out = self.snapshot(fixture, "chatgpt", 5)
+            self.assertEqual(reader.account_identity(), scope)
+            self.assertTrue(signed_out["source_unavailable"])
+            self.assertFalse(signed_out["notification_eligible"])
+            self.assertEqual(signed_out["event_id"], event)
+            credentials[0] = ("fixture-token", "fixture-account")
+            current[0] = fixture.now + 6
+            restored = self.snapshot(fixture, "chatgpt", 6)
+            settled()
+            self.assertFalse(restored["source_unavailable"])
+            self.assertTrue(restored["notification_eligible"])
+            reject[0] = True
+            current[0] = fixture.now + 50
+            self.snapshot(fixture, "chatgpt", 50)
+            settled()
+            rejected = self.snapshot(fixture, "chatgpt", 50)
+            self.assertTrue(rejected["source_unavailable"])
+            self.assertFalse(rejected["notification_eligible"])
+            self.assertEqual(rejected["event_id"], event)
+            reject[0] = False
+            current[0] = fixture.now + 90
+            self.snapshot(fixture, "chatgpt", 90)
+            settled()
+            recovered = self.snapshot(fixture, "chatgpt", 90)
+            self.assertFalse(recovered["source_unavailable"])
+            self.assertTrue(recovered["notification_eligible"])
+            self.assertEqual(recovered["event_id"], event)
+            reader.close()
+            closed = self.snapshot(fixture, "chatgpt", 91)
+            self.assertTrue(closed["source_unavailable"])
+            self.assertFalse(closed["notification_eligible"])
 
 
 class ClaudeDesktopChatTests(unittest.TestCase):

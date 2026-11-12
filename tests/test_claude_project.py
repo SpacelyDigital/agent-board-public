@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 from board_store import BoardStore
 from claude_project_source import (ClaudeProjectSource, ProjectUnavailable, _Client,
@@ -158,6 +159,94 @@ class ClaudeProjectTests(unittest.TestCase):
             client.get = get
             with self.subTest(failure=failure):
                 self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
+
+    def newest_page_client(self, before=900, after=0):
+        client = self.idle_reply_client()
+        client.thread["reply_count"] = "1"
+        actual_reply = client.messages[0]
+        records = [reply(id=f"cmsg_notice_before_{i:04}", created_at=NOW - 2000 + i,
+                         channel_id=CHANNEL, thread_root_id=THREAD, server_notice=True)
+                   for i in range(before)]
+        records.append(actual_reply)
+        records.extend(reply(id=f"cmsg_notice_after_{i:04}", created_at=NOW - 9 + i / 100,
+                             channel_id=CHANNEL, thread_root_id=THREAD, server_notice=True)
+                       for i in range(after))
+        original_get = client.get
+
+        def get(path):
+            if "/threads/" not in path:
+                return original_get(path)
+            client.calls.append(path)
+            query = parse_qs(urlsplit(path).query)
+            if query == {"limit": ["1"]}:
+                return {"data": [client.thread]}
+            if query.get("newest_first") != ["true"]:
+                raise AssertionError("A completion check must request the provider's recent page.")
+            offset = int(query.get("cursor", ["older-0"])[0].removeprefix("older-"))
+            end = len(records) - offset
+            start = max(0, end - 100)
+            return {"data": [client.thread, *records[start:end]],
+                    "next_cursor": f"older-{offset + 100}" if start else None}
+
+        client.get = get
+        return client, records
+
+    def test_hundreds_of_old_server_notices_cannot_hide_the_current_reply(self):
+        client, _ = self.newest_page_client()
+        rows, health = self.collect(client, (TASK,))
+        self.assertTrue(health["available"])
+        self.assertEqual(rows[TASK]["status"], "ready")
+        self.assertEqual(rows[TASK]["_completion_reply_id"], client.messages[0]["id"])
+        self.assertEqual(rows[IDENT]["background_reason"], "project_overview")
+        self.assertEqual(len([path for path in client.calls if "/threads/" in path]), 2)
+
+    def test_recent_server_notices_are_skipped_within_the_same_bounded_page_budget(self):
+        client, _ = self.newest_page_client(after=250)
+        result = _idle_thread_completion(client, CHANNEL, client.thread)
+        self.assertEqual(result["_completion_reply_id"], client.messages[0]["id"])
+        self.assertEqual(len(client.calls), 4)  # Three recent pages and a final root confirmation.
+
+    def test_equal_timestamp_author_on_previous_page_keeps_completion_unconfirmed(self):
+        client, records = self.newest_page_client(before=1, after=99)
+        records.insert(1, {"id": "cmsg_equal_user123", "created_at": NOW - 10,
+                           "channel_id": CHANNEL, "thread_root_id": THREAD,
+                           "author_account_id": "fixture-account", "body": ""})
+        self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
+        self.assertEqual(len(client.calls), 2)
+
+    def test_mid_pagination_work_prompt_or_revision_change_prevents_old_completion(self):
+        for changes in ({"thread_status": "working", "thread_any_session_working": True},
+                        {"open_decisions": [{"id": "fixture-prompt"}]},
+                        {"last_reply_at": NOW, "reply_count": "2"}):
+            with self.subTest(changes=changes):
+                client, _ = self.newest_page_client(before=1, after=99)
+                original_get = client.get
+
+                def changed_middle_page(path):
+                    page = original_get(path)
+                    if "cursor=" in path:
+                        page["data"] = [{**page["data"][0], **changes}, *page["data"][1:]]
+                    return page
+
+                client.get = changed_middle_page
+                self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
+                self.assertEqual(len(client.calls), 2)
+
+    def test_recent_page_cap_and_invalid_order_never_manufacture_completion(self):
+        client, _ = self.newest_page_client(after=900)
+        self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
+        self.assertEqual(len(client.calls), 8)
+        client, _ = self.newest_page_client(before=10)
+        original_get = client.get
+
+        def reversed_page(path):
+            page = original_get(path)
+            if "newest_first" in path:
+                page["data"] = [page["data"][0], *reversed(page["data"][1:])]
+            return page
+
+        client.get = reversed_page
+        self.assertEqual(_idle_thread_completion(client, CHANNEL, client.thread), {})
 
     def test_current_task_replaces_overview_in_main_queue_without_changing_status(self):
         client = FakeClient(status="working", thread=root(thread_any_session_working=True))

@@ -7,10 +7,11 @@ into dashboard history until new activity without changing the source chat.
 
 ## Current direct build, November 11, 2026
 
-The current local repair candidate is **0.2.5 build 56**, using the direct Mac
-app identifier `local.agentboard.display`. This is distinct from the historical
-App Store candidate below. It is not an App Store release or a newly notarized
-distribution.
+The direct Mac candidate uses the app identifier `local.agentboard.display`.
+This is distinct from the historical App Store candidate below. The release's
+`BUILD-RECEIPT.json` records its exact version, build, signing, notarization and
+validation results. `SOURCE-MANIFEST.json` identifies the reviewed source files.
+It is not an App Store release.
 
 ChatGPT conversations now use exact IDs from OpenAI's recent-conversation list
 and the desktop app's local catalog, with reply-status requests directly to OpenAI. Codex windows no
@@ -22,9 +23,14 @@ are shown as turned off.
 
 Usage requests back off after failures and respect the provider's retry delay.
 The last successful reading remains visible with its age and retry state.
+Healthy slower polling shows the reading's age and next scheduled check;
+failed or overdue checks and expired reset windows remain marked stale.
 Both providers use the same row sizing, including when one has an error.
 Claude project status observation times are kept separate from message times,
 so resuming work can clear an older attention state before a new reply appears.
+Idle project threads check their newest replies with a bounded read and verify
+the thread state again before reporting completion. Older system notices cannot
+hide a recent reply behind the history limit.
 Ordinary Claude chats use verified account metadata for both web and desktop
 activity. The board follows exact conversation IDs while the browser is in the
 background or the desktop app is showing another chat. Completion requires a
@@ -32,6 +38,9 @@ new settled reply marker and message identity; a rename cannot create a reply
 alert. A private account-scoped checkpoint preserves Reviewed state across
 restarts and catches replies that finish between checks. Existing chat cards
 keep their identities and review state.
+If Claude omits activity fields, the incomplete response cannot erase known
+chats or create a completion. The prior verified reading keeps its original
+expiry while the reader retries; a prolonged gap is shown as unavailable.
 
 Conversation collectors retry after temporary storage or read failures. Connection
 health expires when a collector stops refreshing, and a stalled refresh cannot
@@ -43,6 +52,9 @@ does not create a new reply alert. Usage values are rounded once when displayed.
 Local transcript verification follows the verified content history when files
 are replaced or reindexed. An unchanged replacement cannot turn an old reviewed
 reply into a new alert; a changed transcript still requires verification.
+Recently active Codex histories receive scan time while older histories continue
+to make progress within the same read budget. A large history backlog cannot
+consume every polling cycle before an active chat is checked.
 
 Recent ChatGPT conversations are discovered directly from OpenAI even when the
 desktop catalog has not refreshed. This is not an account-wide history export.
@@ -55,6 +67,10 @@ unavailable. Claude discovery reads up to 100 recent conversations per check.
 Both account readers require the corresponding account's existing sign-in on
 this Mac; they do not depend on the active browser tab or Accessibility access.
 Missing access remains visible rather than manufacturing completion.
+Saved account-chat replies are checked against the current sign-in before they
+can count as attention or send notifications. Replies from another sign-in stay
+saved locally with an unconfirmed status; returning to their original
+account restores their status without changing review history.
 
 ## Historical shipping candidate, November 6, 2026
 
@@ -147,6 +163,9 @@ background effects have no sound. Appearance offers ten original local alert
 sounds and a Preview button. Sound on uses your selection for new Ready or
 Needs you events. Native notifications require separate opt-in. VoiceOver,
 actual sound output and minimized/closed-window energy use remain release gates.
+If macOS rejects a notification request, Agent Board retries briefly while the
+same event is still eligible. Accepted requests are not repeated. Reviewed or
+changed events, disabled notifications and expired retries are discarded.
 
 Close the window to keep monitoring from the menu bar. Quit stops the owned
 collector. Setup and Permissions controls source folders, notifications and

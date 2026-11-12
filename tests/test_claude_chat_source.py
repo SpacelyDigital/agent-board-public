@@ -74,13 +74,23 @@ class MetadataParserTests(unittest.TestCase):
         self.assertEqual(result["needs_input_kind"], "permission")
         self.assertEqual(parse_conversations([row(workspace_session_id="cse_example123")], NOW)[CHAT]["workspace_session_id"], "cse_example123")
 
-    def test_archived_temporary_nonchat_and_missing_status_are_excluded(self):
+    def test_archived_temporary_and_nonchat_are_excluded(self):
         for changes in ({"is_archived": True}, {"is_temporary": True}, {"platform": "CODE"},
                         {"is_archived": None}, {"is_temporary": None}, {"updated_at": NOW + 99}):
             self.assertEqual(parse_conversations([row(**changes)], NOW), {})
-        data = row()
-        del data["live_status"]
-        self.assertEqual(parse_conversations([data], NOW), {})
+
+    def test_missing_status_in_any_eligible_row_is_incomplete(self):
+        for missing in (("live_status",), ("needs_input",), ("live_status", "needs_input")):
+            bad = row(uuid=ACCOUNT, name="PRIVATE TITLE")
+            for field in missing:
+                del bad[field]
+            for rows in ([bad], [row(), bad]):
+                with self.subTest(missing=missing, count=len(rows)), self.assertRaises(ProviderRequestError) as failure:
+                    parse_conversations(rows, NOW)
+                self.assertEqual(failure.exception.reason, "incomplete_status")
+                self.assertNotIn("PRIVATE", str(failure.exception))
+            bad["is_archived"] = True
+            self.assertEqual(parse_conversations([bad], NOW), {})
 
     def test_rejects_transcripts_duplicate_ids_bad_status_and_unbounded_lists(self):
         for bad in ({}, [None], [row()] * (MAX_CHATS + 1), [row(), row()],
@@ -97,7 +107,7 @@ class TransportTests(unittest.TestCase):
         def __exit__(self, *args): self.close()
 
     def test_exact_get_without_proxy_redirect_or_cloudflare_cookies(self):
-        route = "/api/organizations/" + ORG + "/chat_conversations?limit=100&is_archived=false"
+        route = "/api/organizations/" + ORG + "/chat_conversations?limit=100&is_archived=false&consistency=strong"
         with patch("urllib.request.OpenerDirector.open", return_value=self.Response(b"[]")) as opened:
             self.assertEqual(_read_json(route, ORG, "fixture-session", max_bytes=1024), [])
         request = opened.call_args.args[0]
@@ -127,6 +137,18 @@ class TransportTests(unittest.TestCase):
         with self.assertRaises(ProviderRequestError):
             _read_json("/api/account", ORG, "fixture", max_bytes=MAX_METADATA_BYTES + 1)
 
+    def test_catalog_requires_exact_strong_consistency_and_existing_bounds(self):
+        prefix = "/api/organizations/" + ORG + "/chat_conversations?"
+        for query in ("limit=100&is_archived=false", "limit=100&is_archived=false&consistency=eventual",
+                      "limit=100&is_archived=false&consistency=strong&consistency=eventual",
+                      "limit=101&is_archived=false&consistency=strong",
+                      "limit=100&is_archived=true&consistency=strong",
+                      "limit=100&is_archived=false&consistency=strong&include_messages=true"):
+            with self.subTest(query=query), patch("urllib.request.OpenerDirector.open") as opened:
+                with self.assertRaises(ProviderRequestError):
+                    _read_json(prefix + query, ORG, "fixture", max_bytes=1024)
+                opened.assert_not_called()
+
     def test_rate_limit_and_errors_never_include_remote_body(self):
         error = urllib.error.HTTPError("https://claude.ai", 429, "PRIVATE", {"Retry-After": "600"}, io.BytesIO(b"PRIVATE"))
         with patch("urllib.request.OpenerDirector.open", side_effect=error):
@@ -143,6 +165,9 @@ class TransportTests(unittest.TestCase):
             result = read_account_chats(now=NOW)
         self.assertEqual(result["account_scope"], hashlib.sha256((ACCOUNT + "\0" + ORG).encode()).hexdigest())
         self.assertEqual(read.call_args_list[0].args[0], "/api/account")
+        self.assertEqual(read.call_args_list[1].args[0], "/api/organizations/" + ORG +
+                         "/chat_conversations?limit=100&is_archived=false&consistency=strong")
+        self.assertEqual(read.call_args_list[1].kwargs["max_bytes"], MAX_METADATA_BYTES)
         with patch("claude_chat_source.credential_revision", return_value="revision"), \
              patch("claude_chat_source._credentials", return_value=(ACCOUNT, ORG, "fixture")), \
              patch("claude_chat_source._read_json", return_value={"uuid": ORG}) as read:
@@ -154,6 +179,25 @@ class TransportTests(unittest.TestCase):
              patch("claude_chat_source._credentials", return_value=(ACCOUNT, ORG, "fixture")), \
              patch("claude_chat_source._read_json", side_effect=[{"uuid": ACCOUNT}, [row()]]):
             with self.assertRaises(ProviderRequestError): read_account_chats(now=NOW)
+
+    def test_incomplete_status_is_account_scoped_and_not_a_successful_empty_list(self):
+        incomplete = row()
+        del incomplete["live_status"]
+        del incomplete["needs_input"]
+        for raw, expected in (([incomplete], {"error_code": "incomplete_status"}), ([], {"conversations": {}})):
+            with patch("claude_chat_source.credential_revision", return_value="revision") as revision, \
+                 patch("claude_chat_source._credentials", return_value=(ACCOUNT, ORG, "fixture")), \
+                 patch("claude_chat_source._read_json", side_effect=[{"uuid": ACCOUNT}, raw]):
+                result = read_account_chats(now=NOW)
+            scope = hashlib.sha256((ACCOUNT + "\0" + ORG).encode()).hexdigest()
+            self.assertEqual(result, {"account_scope": scope, **expected})
+            self.assertEqual(revision.call_count, 2)
+        with patch("claude_chat_source.credential_revision", side_effect=["before", "after"]), \
+             patch("claude_chat_source._credentials", return_value=(ACCOUNT, ORG, "fixture")), \
+             patch("claude_chat_source._read_json", side_effect=[{"uuid": ACCOUNT}, [incomplete]]):
+            with self.assertRaises(ProviderRequestError) as failure:
+                read_account_chats(now=NOW)
+        self.assertEqual(failure.exception.reason, "authentication")
 
 
 class CredentialTests(unittest.TestCase):
@@ -244,6 +288,111 @@ class CachedReaderTests(unittest.TestCase):
         self.assertTrue(current["available"])
         self.assertEqual(current["conversations"], {})
         self.assertEqual(current["retry_at"], NOW + 10)
+
+    def test_incomplete_status_retains_original_receipt_then_recovers_at_normal_cadence(self):
+        results = iter((snapshot(live_status="running", live_status_started_at=NOW - 1),
+                        {"account_scope": SCOPE, "error_code": "incomplete_status"},
+                        snapshot(last_settled_at=NOW + 9, current_leaf_message_uuid=ACCOUNT)))
+        reader = self.make_reader(lambda: next(results))
+        reader.scan(self.now); self.settle(reader)
+        self.now += 5
+        reader.scan(self.now); self.settle(reader)
+        retained = reader.scan(self.now)
+        self.assertTrue(retained["fresh"])
+        self.assertEqual(retained["observed_at"], NOW)
+        self.assertEqual(retained["conversations"][CHAT]["live_status"], "running")
+        self.assertEqual(retained["error_code"], "incomplete_status")
+        self.assertEqual(retained["retry_at"], NOW + 10)
+        self.now += 5
+        reader.scan(self.now); self.settle(reader)
+        recovered = reader.scan(self.now)
+        self.assertEqual(recovered["observed_at"], NOW + 10)
+        self.assertIsNone(recovered["error_code"])
+        self.assertIsNone(recovered["conversations"][CHAT]["live_status"])
+        self.assertEqual(recovered["retry_at"], NOW + 20)
+
+    def test_repeated_incomplete_status_never_renews_freshness(self):
+        value = [snapshot(live_status="running", live_status_started_at=NOW - 1)]
+        reader = self.make_reader(lambda: value[0])
+        reader.scan(self.now); self.settle(reader)
+        value[0] = {"account_scope": SCOPE, "error_code": "incomplete_status"}
+        for offset in (5, 10, 15, 20):
+            self.now = NOW + offset
+            reader.scan(self.now); self.settle(reader)
+            result = reader.scan(self.now)
+            self.assertEqual(result["observed_at"], NOW)
+            self.assertEqual(result["fresh"], offset <= FRESH_SECONDS)
+            if offset > FRESH_SECONDS:
+                self.assertFalse(result["available"])
+                self.assertEqual(result["conversations"], {})
+            self.assertEqual(result["retry_at"], self.now + 5)
+
+    def test_incomplete_normalized_helper_packet_uses_same_receipt_guard(self):
+        value = [snapshot(live_status="running")]
+        reader = self.make_reader(lambda: value[0])
+        reader.scan(self.now); self.settle(reader)
+        value[0] = snapshot()
+        del value[0]["conversations"][CHAT]["needs_input"]
+        self.now += 5
+        reader.scan(self.now); self.settle(reader)
+        result = reader.scan(self.now)
+        self.assertEqual(result["error_code"], "incomplete_status")
+        self.assertEqual(result["observed_at"], NOW)
+        self.assertEqual(result["conversations"][CHAT]["live_status"], "running")
+        self.assertEqual(result["retry_at"], NOW + 10)
+
+    def test_initial_incomplete_status_is_unavailable_and_retries_at_idle_cadence(self):
+        reader = self.make_reader(lambda: {"account_scope": SCOPE, "error_code": "incomplete_status"})
+        reader.scan(self.now); self.settle(reader)
+        result = reader.scan(self.now)
+        self.assertFalse(result["available"])
+        self.assertIsNone(result["observed_at"])
+        self.assertEqual(result["conversations"], {})
+        self.assertEqual(result["retry_at"], NOW + 10)
+
+    def test_incomplete_status_cannot_retain_another_account_or_rotated_cookie(self):
+        for change in ("scope", "cookie"):
+            value = [snapshot(live_status="running", live_status_started_at=NOW - 1)]
+            reader = self.make_reader(lambda: value[0])
+            reader.scan(self.now); self.settle(reader)
+            scope = "b" * 64 if change == "scope" else SCOPE
+            value[0] = {"account_scope": scope, "error_code": "incomplete_status"}
+            if change == "cookie":
+                self.revision = "rotated"
+            self.now += 5
+            reader.scan(self.now); self.settle(reader)
+            result = reader.scan(self.now)
+            self.assertFalse(result["available"])
+            self.assertIsNone(result["observed_at"])
+            self.assertEqual(result["conversations"], {})
+            value[0] = {"account_scope": scope, "conversations": {}}
+            self.now += 10
+            reader.scan(self.now); self.settle(reader)
+            self.assertTrue(reader.scan(self.now)["available"])
+            self.assertEqual(reader.scan(self.now)["conversations"], {})
+
+    def test_incomplete_status_does_not_mask_revocation_or_rate_limit_floor(self):
+        for error in ("authentication", "account_mismatch", "access_required"):
+            value = [snapshot(live_status="running")]
+            reader = self.make_reader(lambda: value[0])
+            reader.scan(self.now); self.settle(reader)
+            value[0] = {"account_scope": SCOPE, "error_code": "incomplete_status"}
+            self.now += 5
+            reader.scan(self.now); self.settle(reader)
+            value[0] = {"error_code": error}
+            self.now += 5
+            reader.scan(self.now); self.settle(reader)
+            self.assertFalse(reader.scan(self.now)["available"])
+            self.assertIsNone(reader.scan(self.now)["observed_at"])
+            self.assertEqual(reader.scan(self.now)["conversations"], {})
+        value = [snapshot()]
+        reader = self.make_reader(lambda: value[0])
+        reader.scan(self.now); self.settle(reader)
+        reader._rate_floor = 300
+        value[0] = {"account_scope": SCOPE, "error_code": "incomplete_status"}
+        self.now += 10
+        reader.scan(self.now); self.settle(reader)
+        self.assertEqual(reader.scan(self.now)["retry_at"], self.now + 300)
 
     def test_failed_worker_start_releases_slot_and_retries_without_restart(self):
         calls = []

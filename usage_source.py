@@ -475,6 +475,13 @@ class UsageSource:
                     cached = {"id": ident, "name": name, "available": True, "updated_at": now, "stale": False, "error": None, "error_code": None, "retry_at": None, "windows": windows, "loading": False}
                     self._failures[ident] = 0
                     self._next_attempts[ident] = now + self._refresh_floors.get(ident, REFRESH_SECONDS)
+                    # A successful reader following a learned slower schedule
+                    # is healthy until its next check is overdue. Preserve the
+                    # observation time and publish the schedule so the UI can
+                    # show its age and expire it even if this worker stops.
+                    cached["next_refresh_at"] = self._next_attempts[ident]
+                    cached["stale_at"] = max(now + STALE_SECONDS,
+                                             cached["next_refresh_at"] + REFRESH_SECONDS)
                     if credits is not None:
                         cached["credits"] = {**credits, "observed_at": now}
                 except Exception as error:
@@ -503,15 +510,15 @@ class UsageSource:
                     cached["retry_at"] = self._next_attempts[ident]
                 self._cache[ident] = cached
             entry = copy.deepcopy(cached)
-            if entry.get("updated_at") is not None and now - entry["updated_at"] > STALE_SECONDS:
+            if entry.get("updated_at") is not None and now > entry.get("stale_at", entry["updated_at"] + STALE_SECONDS):
                 entry["stale"] = True
-            if "credits" in entry:
-                entry["credits"]["stale"] = entry["stale"]
             # Never roll an expired window forward or infer that it has reset to
             # 100%. Keep its last observed timestamp and mark the reading stale.
             if any(window["reset_at"] <= now for window in entry["windows"]):
                 entry["stale"] = True
                 entry["error"] = entry.get("error") or "A reported usage reset has passed; waiting for an updated account reading."
+            if "credits" in entry:
+                entry["credits"]["stale"] = entry["stale"]
             entries.append(entry)
         return entries
 

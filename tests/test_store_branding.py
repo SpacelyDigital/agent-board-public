@@ -2,6 +2,7 @@
 
 import http.client
 from pathlib import Path
+import plistlib
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from build_support import runtime_asset_mapping, stage_runtime_assets
-from server import BoardHTTPServer, Handler
+from server import BoardHTTPServer, Handler, _runtime_build_label
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +102,54 @@ class StoreBrandingTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(content, (ROOT / "static" / file).read_bytes())
                 self.assertNotIn(b'data-provider-marks="off"', content)
+
+    def test_about_displays_running_package_build_in_direct_and_store_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contents = Path(directory) / "Collector.app/Contents"
+            executable = contents / "MacOS/agent-board-collector"
+            executable.parent.mkdir(parents=True)
+            info = contents / "Info.plist"
+            info.write_bytes(plistlib.dumps({"CFBundleShortVersionString": "9.8.7", "CFBundleVersion": "123456"}))
+            with patch("server.sys.frozen", True, create=True), patch("server.sys.executable", str(executable)):
+                label = _runtime_build_label()
+                self.assertEqual(label, "Version 9.8.7 (build 123456)")
+                # The displayed identity remains the captured running package,
+                # even if an app update replaces its on-disk metadata later.
+                info.write_bytes(plistlib.dumps({"CFBundleShortVersionString": "9.8.8", "CFBundleVersion": "123457"}))
+                with patch("server.BUILD_LABEL", label):
+                    for store_profile in (False, True):
+                        with self.subTest(store_profile=store_profile):
+                            server = self.serve(store_profile, staged=True)
+                            status, content, headers = self.request(server, "/about/")
+                            self.assertEqual(status, 200)
+                            self.assertIn(b'<p class="about-version">Version 9.8.7 (build 123456)</p>', content)
+                            self.assertNotIn(b"runtime-build", content)
+                            self.assertNotIn(b"123457", content)
+                            self.assertNotIn(str(directory).encode(), content)
+                            self.assertIn("default-src 'self'", headers["Content-Security-Policy"])
+
+
+class RuntimeBuildLabelTests(unittest.TestCase):
+    def test_source_run_does_not_claim_a_packaged_version(self):
+        with patch("server.sys.frozen", False, create=True), patch("pathlib.Path.open", side_effect=AssertionError("unexpected read")):
+            self.assertEqual(_runtime_build_label(), "Development build")
+
+    def test_invalid_or_unreadable_package_metadata_has_no_injected_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contents = Path(directory) / "Collector.app/Contents"
+            executable = contents / "MacOS/agent-board-collector"
+            executable.parent.mkdir(parents=True)
+            info = contents / "Info.plist"
+            with patch("server.sys.frozen", True, create=True), patch("server.sys.executable", str(executable)):
+                self.assertEqual(_runtime_build_label(), "Version unavailable")
+                for value in ({}, [], {"CFBundleShortVersionString": "<script>private</script>", "CFBundleVersion": "1"},
+                              {"CFBundleShortVersionString": "1.2.3", "CFBundleVersion": True},
+                              {"CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "-1"}):
+                    info.write_bytes(plistlib.dumps(value))
+                    self.assertEqual(_runtime_build_label(), "Version unavailable")
+                for raw in (b"not a plist", b"x" * 65537):
+                    info.write_bytes(raw)
+                    self.assertEqual(_runtime_build_label(), "Version unavailable")
 
 
 if __name__ == "__main__":

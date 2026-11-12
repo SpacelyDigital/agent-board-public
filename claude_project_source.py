@@ -269,31 +269,53 @@ def _idle_thread_completion(client: _Client, channel_id: str, root: dict) -> dic
     cursor = ""
     seen_cursors = set()
     messages = []
-    # The API is oldest first. Eight bounded pages cover long active threads;
-    # an incomplete read remains unknown and cannot manufacture completion.
+    previous_oldest = None
+    # The desktop client's thread reader supports newest_first. Each page is
+    # still ascending, with the root prepended; its cursor walks older pages.
+    # Server notices do not count toward reply_count, so an oldest-first scan
+    # can exhaust its budget long before reaching a completed long thread.
+    # Read at most eight recent pages, stopping only after the latest authored
+    # timestamp is bounded by an older row or the end of available history.
     for page_number in range(8):
-        page = client.get(path + "?" + urlencode({"limit": 100, **({"cursor": cursor} if cursor else {})}))
+        page = client.get(path + "?" + urlencode({"limit": 100, "newest_first": "true",
+                                                  **({"cursor": cursor} if cursor else {})}))
         rows = _rows(page)
-        if page_number == 0:
-            current = next((item for item in rows if item.get("id") == thread_id), {})
-            if _idle_reply_revision(current) != revision:
-                return {}
+        if len(rows) > 101:
+            return {}
+        page_roots = [item for item in rows if item.get("id") == thread_id]
+        if (len(page_roots) > 1 or page_number == 0 and len(page_roots) != 1
+                or any(_idle_reply_revision(item) != revision for item in page_roots)):
+            return {}
+        times = []
         for item in rows:
             if item.get("channel_id") != channel_id or item.get("thread_root_id") != thread_id:
                 return {}
+            if item.get("id") != thread_id:
+                stamp = _timestamp(item.get("created_at"))
+                if not stamp:
+                    return {}
+                times.append(stamp)
             if (item.get("id") != thread_id and not item.get("server_notice")
                     and (item.get("author_account_id") or item.get("author_agent_id"))):
                 if not _MESSAGE.fullmatch(str(item.get("id", ""))) or not _timestamp(item.get("created_at")):
                     return {}
                 messages.append(item)
+        if (times != sorted(times) or previous_oldest is not None and times and max(times) > previous_oldest):
+            return {}
         next_cursor = page.get("next_cursor")
-        if next_cursor is None or next_cursor == "":
-            break
-        if (not isinstance(next_cursor, str) or len(next_cursor) > 4096
+        if next_cursor not in (None, "") and (not isinstance(next_cursor, str) or len(next_cursor) > 4096
                 or next_cursor in seen_cursors or any(ord(char) < 32 or ord(char) == 127 for char in next_cursor)):
+            return {}
+        latest_at = max((_timestamp(item["created_at"]) for item in messages), default=0)
+        # A boundary equal to the candidate timestamp may hide another author
+        # on the next page. Read past that boundary before accepting uniqueness.
+        if latest_at and (not next_cursor or times and min(times) < latest_at):
+            break
+        if not next_cursor or not times:
             return {}
         seen_cursors.add(next_cursor)
         cursor = next_cursor
+        previous_oldest = min(times)
     else:
         return {}
     if not messages:

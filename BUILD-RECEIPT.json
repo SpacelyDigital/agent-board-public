@@ -1,49 +1,64 @@
 {
   "version": "0.2.5",
-  "build": 56,
-  "verified_on": "2026-11-11",
+  "build": 60,
+  "verified_on": "2026-11-12 UTC; macOS 26.6 host and existing local macOS 13.0 VM",
   "source_files": 200,
-  "source_manifest_sha256": "e54d89ce6873a3b8111caa341749b4a2c8b708deb19cbbb39c6e1557d040808f",
-  "automated_tests": 628,
+  "source_manifest_sha256": "b3f7ef8231ee46c399da3674a8ddb1262c09374cab9fecb0bab3822962a00885",
+  "automated_tests": 672,
   "packaged_workflow_checks": 36,
-  "packaged_workflow_scope": "Exact installed collector, disposable local data, accounts disabled, browser skipped. These checks are separate from the live desktop results below.",
-  "embedded_modules_verified_against_source": 14,
-  "signing": "Existing Developer ID with hardened runtime. Strict signature checks passed. No new secure timestamp or notarization; separate from the historical App Store candidate.",
-  "executables": {
-    "Contents/MacOS/AgentBoard": "fe96e24c9e3007d82867294221f48831293ab4e54a238a23f53e0dcec9e12489",
-    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "0d78a4846e9234a5931fc370d80b69200760044a8dcb7129a156662eb3dc8d47"
+  "packaged_workflow_scope": "36 checks ran against the exact installed build60 collector using disposable local data, accounts disabled and browser checks skipped. These are supporting checks, separate from the live desktop workflows.",
+  "embedded_modules_verified_against_source": 18,
+  "signing": "Developer ID signed with secure timestamps and hardened runtime. Strict signatures, Gatekeeper assessments, stapled tickets and exact ZIP/DMG readback passed.",
+  "notarization": {
+    "app": "Accepted, zero issues",
+    "dmg": "Accepted, zero issues",
+    "stapled_app_and_dmg": true
   },
-  "zip_sha256": "962d1e25ba7b76b7cbb20a3e0184c65500eab884272251e4bc2832c874925dc1",
-  "changes_since_build55": [
-    "Preserve usage precision until display so percentages are rounded only once.",
-    "Do not alert on an old ChatGPT assistant branch selected after monitoring starts; preserve reviewed state and exact conversation identity.",
-    "Recover Claude account-reader busy state and ChatGPT worker slots when thread creation fails.",
-    "Handle Claude reply markers arriving while the same turn is still running, including restart and same-second turn boundaries, without consuming completion early.",
-    "Update local About and Privacy disclosures to describe the current account readers and transient latest-turn checks."
+  "architecture": "arm64",
+  "minimum_macos": "13.0",
+  "executables": {
+    "Contents/Helpers/AgentBoardCollector.app/Contents/Frameworks/libpython3.12.dylib": "57c75a92d7f289b99ae896ab6c0a0fc80f0b9ec42b1bf7b7a2dd93fc78c14b3c",
+    "Contents/Helpers/AgentBoardCollector.app/Contents/MacOS/agent-board-collector": "ecbc3357d8c75d51f6fc05fa1123d6c11754afaa6c6a83a147da0ce76275c303",
+    "Contents/MacOS/AgentBoard": "cae35d49faf8c39b7453f38edf486df92e4f166e9f4aa3cf49027e4fb339faa9"
+  },
+  "zip_sha256": "5f3ce37b393e00aed36dd78013e22a833326a0c40c074c68b1277dcd75c7f044",
+  "dmg_sha256": "684c7d13230aedd12c9ba6d16897b85a18c4b18ab6e60a9cdfb97caea2a51a0b",
+  "distribution_receipt_sha256": "db692fb0963b7f9503612a316cc261ad89b4d0582ff6055179ae825b6d237606",
+  "changes_since_build56": [
+    "Keep the learned usage retry floor after a successful retry. Healthy slower polling displays the original reading age and next check; failed or overdue checks and expired reset windows are stale.",
+    "Verify an idle Claude project thread from bounded newest-first reply pages, with stable thread-state checks on every page and a final confirmation. Old system notices cannot hide the latest authored reply.",
+    "Retry a rejected native notification briefly while its exact event is still eligible. Reviewed, replaced, expired or disabled notifications are not retried.",
+    "Fence saved account-chat attention and notification eligibility by the current verified account while preserving saved identity and review history.",
+    "Treat missing Claude activity fields as an incomplete response, including a partly incomplete catalog. Preserve only the same account's prior receipt with its original 15-second expiry and normal retry cadence; never turn omitted status into an empty account or a completion.",
+    "Reserve verification work for recent Codex histories on every poll. Rotate recent and older histories independently, reserving one eighth of the unchanged shared time and byte budget for older work. Keep prefix, rewrite, identity and completion checks intact.",
+    "Show the running app version and build in About. Refer to the build receipt and source manifest for the current release instead of embedding a stale build number in README."
   ],
   "live_workflows": {
-    "build56_claude_desktop": "A new reply in an existing ordinary Claude desktop chat appeared once as Cooking, then Ready while the desktop app showed its Code pane. The completed reply was confirmed in Claude. Reviewed survived a normal Agent Board quit and reopen.",
-    "build56_final_state": "All five sources connected after restart. Current Codex work and a running Claude project appeared as Cooking. Both providers displayed fresh, aligned whole-number usage. The corrected About and expanded Privacy content rendered and returned to the board.",
-    "build55_controls": "Local rename, ten-minute snooze, restart persistence, new short reply clearing snooze, restoring the automatic title, Reviewed, Restore, and source disable/re-enable were exercised through the desktop app. Re-enabling the source retained Reviewed state.",
-    "build55_storage_recovery": "The live collector encountered actual full-disk failures, showed disconnected or last-known state, and recovered in the same running process after regenerable build caches were cleared. The completed test reply became Ready.",
-    "build55_soak": "Twenty read-only samples over five minutes showed all five sources available and collector heartbeat ages below 2.2 seconds, with no new log errors.",
-    "earlier_web_evidence": "Build53 exercised real short replies in both provider web apps and exact-chat handoff. Web paths were not rerun for56 because this pass was restricted to desktop apps.",
-    "earlier_chatgpt_desktop_evidence": "An earlier bounded reader confirmed a completed reply from a user-created desktop test chat. Its saved card remains accessible. A fresh complete ChatGPT desktop submission lifecycle is still unverified.",
-    "notifications": "The native test-notification action reported no delivery error. A visible notification banner was not independently confirmed."
+    "build60_host": "The exact installed release showed an ordinary Claude desktop reply move Cooking to Ready as one card and one new event. Open reached the exact completed chat. Reviewed persisted through quit/relaunch and was no longer notification-eligible. About showed Version 0.2.5 (build 60). Usage rows were aligned and displayed whole values. A five-minute local observer captured 132 samples with no duplicate identities, heartbeat failures, stale usage or rate limits. After restart, Codex completed a six-second initial catch-up and stayed fresh Cooking for all 54 remaining samples across 116.5 seconds and 20 changing activity timestamps. Two isolated pre-restart checking frames each recovered on the next sample; uninterrupted status is not claimed. During that same observation, incomplete or expired provider receipts made the ordinary Claude chat source unavailable in 46 of 132 samples and the Claude project source unavailable in three samples. Saved identity and review state survived; continuous Claude status availability is not claimed.",
+    "build60_recipient_vm": "The existing local macOS 13.0 VM downloaded the exact final build60 DMG, replaced build58 through Finder, accepted the normal Apple-checked first-open prompt and launched the installed app. About displayed Version 0.2.5 (build 60). Saved dark theme and completed setup state persisted. No provider accounts were connected in the VM; connected-provider and visible banner delivery checks remain unverified there.",
+    "build58_host_supporting_only": "Build58 showed one ordinary Claude desktop card move from Cooking to Ready, opened the exact completed chat, and retained Reviewed through quit/relaunch. Usage rows were aligned and displayed whole values. Publication was held because a growing Codex history flickered between verified and checking after restart.",
+    "build58_vm_supporting_only": "The existing local macOS 13 VM downloaded the exact final build 58 DMG, replaced the app through Finder, showed Apple's checked-app first-open prompt and launched. Theme, setup state and notification preference persisted. Provider accounts were not connected; a test notification was attempted but no Agent Board banner was observed. This is not a fresh build 60 check.",
+    "claude_guard_supporting_only": "A five-minute live account-reader check using the frozen build 58 code and private copied board state encountered 16 incomplete and 15 complete receipts. It retained original freshness, expired honestly during longer gaps, preserved one card and produced one stable completed event. The test did not establish uninterrupted provider status availability.",
+    "chatgpt_desktop_prior_evidence": "The user-submitted ChatGPT desktop test completion was observed on build 56. Its current Cooking phase was not captured. A fresh complete ChatGPT desktop lifecycle has not been demonstrated on build 60.",
+    "provider_web_prior_evidence": "Build53 exercised a real short reply and exact-chat handoff in ChatGPT web, alongside Claude desktop checks. No fresh provider web lifecycle was run for build60 because final testing was restricted to desktop apps."
   },
   "supporting_tests": {
-    "native_lifetime": "Eleven native reader and parent-lifetime fixture cases passed on55; CollectorRuntime.swift is byte-identical in56. These cases were not rerun.",
-    "regressions": "Historical branch selection, reply settlement ordering, same-second turn boundaries, restarts, failed storage writes, source identity deduplication, worker-start recovery, usage rounding, account isolation, bounded network responses, and privacy checks are covered by the automated suite."
+    "build60_unit_suite": "672 tests passed against the exact frozen build60 source in 19.270 seconds.",
+    "codex_scheduler": "A disposable 38-file backlog reproduced build 58's alternating checked/unchecked status when the active history was appended before each poll. The revised scheduler verified all 12 appends while older histories advanced under the same total budget. A separate disposable 100 MB history verified each of 12 appends in about 35 ms on the development host. These fixtures support, but do not replace, installed build 60 restart testing.",
+    "regressions": "The suite covers partial or missing Claude activity fields, original receipt expiry, account and credential changes, resumed and completed project work, equal-time replies, changed roots during pagination, usage deadlines, notification retry eligibility, continuously appended histories, background progress, rewritten prefixes and unverified over-budget state.",
+    "installed_parity": "200 frozen source files, three signed executable hashes, 18 embedded Python modules and 35 runtime assets matched the final installed release."
   },
   "limitations": [
-    "A fresh ChatGPT desktop prompt-to-board lifecycle is unverified because Computer Use cannot control the app hosting the session. No alternate control path was used.",
-    "Visible native notification delivery, a clean recipient installation, new notarization, and a complete minimum-OS run remain unverified.",
-    "Provider account readers require the matching existing sign-in on this Mac and use interfaces that can change.",
-    "Discovery is bounded to 100 recent conversations per provider; ChatGPT status checks are bounded to 256 identities and latest-turn reads to 3 MiB.",
-    "A first-seen ChatGPT reply that began before monitoring may remain unconfirmed without a provider finish timestamp or prior reply baseline.",
-    "Provider errors, rate limits, and delayed settlement metadata can temporarily delay status or usage updates. Unconfirmed activity is not presented as verified completion.",
-    "This is an engineering backup and local repair candidate, not App Store approval or unrestricted distribution readiness."
+    "Claude may omit current activity metadata. The last complete reading is usable only until its original 15-second expiry; longer gaps show unavailable status until a complete response arrives. Saved identities and review state remain local, but current status and catalog-only visibility are not guaranteed during an outage.",
+    "The stronger consistency query does not eliminate Claude's sparse activity responses. Missing fields are not treated as unchanged or idle.",
+    "The build60 live Codex test had two isolated verification intervals and a six-second initial catch-up after restart. The sustained alternating backlog defect did not recur during the remaining observation window. This bounded test is not a guarantee for all history sizes or future provider changes.",
+    "A continuously changing transcript that cannot be fully verified within the bounded work allowance can remain unconfirmed. The scheduler does not bypass prefix or rewrite verification or retain an unverified Cooking state indefinitely.",
+    "The ChatGPT desktop Cooking phase was not observed in the user-submitted build 56 test; only its completion was confirmed. No fresh provider web lifecycle was run for 59 or 60.",
+    "The final release installed and launched on macOS 13.0. VM provider accounts were unconnected; connected-provider workflows and visible notification delivery remain unverified there. A host banner was confirmed by the user on build56; this is not a new build60 banner confirmation.",
+    "Provider account readers require the corresponding existing sign-in on this Mac and use interfaces that can change. Errors, rate limits and delayed settlement metadata can delay activity or usage updates.",
+    "Account discovery is bounded to 100 recent conversations per provider. ChatGPT status work is bounded to 256 identities and latest-turn responses to 3 MiB. A first-seen reply that began before monitoring may remain unconfirmed without a finish timestamp or prior baseline.",
+    "This direct Mac distribution is separate from the historical App Store candidate and does not establish App Store approval."
   ],
-  "release_assessment": "Local candidate installed and tested. Public launch readiness remains unconfirmed because the desktop, notification, and distribution checks listed above are incomplete.",
-  "publication_scope": "Allowlisted application source, source manifest, build receipt, and compiled app. No live databases, account credentials, private chat records, raw logs, screenshots, or private repository history."
+  "release_assessment": "Validated direct-distribution release with the limitations recorded here. The reported regressions have general fixes and automated coverage; final installed desktop and minimum-OS update checks are recorded separately from fixtures and earlier-build evidence.",
+  "publication_scope": "Only the 200 allowlisted application source files, source manifest, finalized build receipt, sanitized distribution receipt and exact signed ZIP/DMG. No live databases, account credentials, private chat identifiers or titles, raw logs, screenshots, diagnostic scripts or private repository history."
 }

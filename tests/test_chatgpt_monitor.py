@@ -31,6 +31,9 @@ class StatusReader:
     def account_identity(self):
         return self.account
 
+    def current_account_identity(self):
+        return self.account
+
     def scan(self, identifiers, now, reply_candidates=None):
         self.calls.append("scan")
         self.requested = list(identifiers)
