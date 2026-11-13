@@ -23,6 +23,7 @@ from install import ALERT_SOUND_IDS, RUNTIME_FILES, build_app
 
 HELPER = Path("Contents/Helpers/AgentBoardCollector.app")
 APPLE_GENERIC_REQUIREMENT = "=anchor apple generic"
+MAX_PROFILE_BYTES = 2 * 1024 * 1024
 
 
 def checked(arguments, *, accepted=(0,)):
@@ -88,15 +89,67 @@ def validate_profile(values, bundle_id, team_id, now=None):
     return {"expires_utc": expires.isoformat(), "allowed_certificates": certificates}
 
 
+def profile_file_bytes(path):
+    """Read one stable, bounded regular file without following its final link."""
+    def signature(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= MAX_PROFILE_BYTES:
+            raise ValueError("Supply a regular, bounded provisioning profile file.")
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+        with os.fdopen(descriptor, "rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if signature(opened) != signature(before):
+                raise ValueError("The provisioning profile changed before it could be read.")
+            content = handle.read(MAX_PROFILE_BYTES + 1)
+            after = os.fstat(handle.fileno())
+        if (len(content) != before.st_size or signature(after) != signature(before)
+                or signature(path.lstat()) != signature(before)):
+            raise ValueError("The provisioning profile changed while it was read.")
+        return content
+    except OSError as error:
+        raise ValueError("The provisioning profile could not be read safely.") from error
+
+
 def read_profile(path, configuration):
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
-        raise ValueError("Supply a regular, bounded provisioning profile file.")
-    decoded = checked(["/usr/bin/security", "cms", "-D", "-i", path]).stdout
+    content = profile_file_bytes(path)
+    # CMS validates the same bytes that will later be embedded. A replacement
+    # of the caller's original path cannot change this build input.
+    with tempfile.TemporaryDirectory(prefix="agent-board-profile-") as directory:
+        snapshot = Path(directory) / "profile.provisionprofile"
+        descriptor = os.open(snapshot, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+        decoded = checked(["/usr/bin/security", "cms", "-D", "-i", snapshot]).stdout
+        if profile_file_bytes(snapshot) != content:
+            raise ValueError("The private provisioning profile snapshot changed during validation.")
     try:
         values = plistlib.loads(decoded.encode())
     except (ValueError, plistlib.InvalidFileException) as error:
         raise ValueError("The provisioning profile could not be decoded.") from error
-    return validate_profile(values, configuration.bundle_id, configuration.team_id)
+    profile = validate_profile(values, configuration.bundle_id, configuration.team_id)
+    return {**profile, "data": content, "sha256": hashlib.sha256(content).hexdigest()}
+
+
+def validated_profile_bytes(profile):
+    if not isinstance(profile, dict):
+        raise ValueError("The validated provisioning profile snapshot is missing.")
+    content = profile.get("data")
+    if (type(content) is not bytes or not 0 < len(content) <= MAX_PROFILE_BYTES
+            or hashlib.sha256(content).hexdigest() != profile.get("sha256")):
+        raise ValueError("The validated provisioning profile snapshot is invalid.")
+    return content
+
+
+def validate_embedded_profile(app, configuration, profile):
+    embedded = app / "Contents/embedded.provisionprofile"
+    if configuration.signing_channel == "store-distribution" and configuration.provisioning_profile:
+        if profile_file_bytes(embedded) != validated_profile_bytes(profile):
+            raise ValueError("The embedded profile differs from the validated snapshot.")
+    elif embedded.exists() or embedded.is_symlink():
+        raise ValueError("This build must not contain an unexpected provisioning profile.")
 
 
 def signature_details(path):
@@ -226,8 +279,19 @@ def validate_store_fixture_exclusion(app):
         raise ValueError("Developer fixture mode must not ship in the Store executable.")
 
 
+def validate_encryption_metadata(info, configuration, *, helper=False):
+    # Export classification belongs to the main app. Helpers never carry an
+    # independent or conflicting declaration in this packaging configuration.
+    expected = {} if helper else configuration.encryption_metadata()
+    keys = {"ITSAppUsesNonExemptEncryption", "ITSEncryptionExportComplianceCode"}
+    if (keys.intersection(info) != set(expected)
+            or any(type(info[key]) is not type(value) or info[key] != value for key, value in expected.items())):
+        raise ValueError("The app encryption declaration differs from the owner's explicit answer or deferral.")
+
+
 def validate_store_bundle(app, configuration, profile=None):
-    encryption = configuration.encryption_metadata()
+    configuration.encryption_metadata()
+    validate_embedded_profile(app, configuration, profile)
     validate_no_quarantine(app)
     validate_recipient_readability(app)
     checked(["/usr/bin/codesign", "--verify", "--deep", "--strict", app])
@@ -240,8 +304,7 @@ def validate_store_bundle(app, configuration, profile=None):
                 "LSApplicationCategoryType": "public.app-category.developer-tools"}
     if any(info.get(key) != value for key, value in expected.items()):
         raise ValueError("The app metadata does not match the requested Store configuration.")
-    if any(type(info.get(key)) is not type(value) or info.get(key) != value for key, value in encryption.items()):
-        raise ValueError("The app encryption declaration differs from the owner's explicit answer.")
+    validate_encryption_metadata(info, configuration)
     validate_store_fixture_exclusion(app)
     if info.get("CFBundleIconFile") != "AgentBoard.icns":
         raise ValueError("The native icon name is invalid.")
@@ -260,6 +323,7 @@ def validate_store_bundle(app, configuration, profile=None):
             or plistlib.dumps(signed_entitlements(app / HELPER)) != plistlib.dumps(HELPER_ENTITLEMENTS)):
         raise ValueError("The main/helper sandbox entitlements are not the reviewed exact sets.")
     helper_info = plistlib.loads((app / HELPER / "Contents/Info.plist").read_bytes())
+    validate_encryption_metadata(helper_info, configuration, helper=True)
     if (helper_info.get("CFBundleIdentifier") != configuration.helper_id
             or helper_info.get("CFBundleVersion") != configuration.build_number
             or helper_info.get("CFBundleShortVersionString") != configuration.version
@@ -297,6 +361,8 @@ def validate_store_bundle(app, configuration, profile=None):
     if len(main_sdk) != 1 or info.get("DTSDKName") != "macosx" + main_sdk[0]:
         raise ValueError("The declared SDK must match the main executable's actual linked SDK.")
     executable_paths = {"Contents/MacOS/AgentBoard", str(HELPER / "Contents/MacOS/agent-board-collector")}
+    signer_fingerprints = {}
+    profile_signer = None
     for component in native:
         path = app / component["path"]
         details = signature_details(path)
@@ -313,21 +379,23 @@ def validate_store_bundle(app, configuration, profile=None):
             if (not authorities or not authorities[0].startswith(("Apple Distribution:", "3rd Party Mac Developer Application:"))
                     or details.get("TeamIdentifier") != configuration.team_id):
                 raise ValueError("Every native component must use the requested Apple Distribution team.")
+            with tempfile.TemporaryDirectory(prefix="agent-board-public-cert-") as directory:
+                prefix = Path(directory) / "public-cert-"
+                checked(["/usr/bin/codesign", "-d", "--extract-certificates", prefix, path])
+                certificate = profile_file_bytes(Path(str(prefix) + "0"))
+                signer_fingerprints[component["path"]] = hashlib.sha256(certificate).hexdigest()
+                if component["path"] == "Contents/MacOS/AgentBoard":
+                    profile_signer = certificate
         elif details.get("Signature") != "adhoc":
             raise ValueError("A local Store preview must remain explicitly ad-hoc signed.")
         if component["path"] not in executable_paths and signed_entitlements(path):
             raise ValueError("Embedded libraries must not carry executable entitlements.")
     if distribution and configuration.provisioning_profile:
-        with tempfile.TemporaryDirectory(prefix="agent-board-public-cert-") as directory:
-            prefix = Path(directory) / "public-cert-"
-            checked(["/usr/bin/codesign", "-d", "--extract-certificates", prefix, app])
-            if not profile or (Path(str(prefix) + "0").read_bytes() not in profile["allowed_certificates"]):
-                raise ValueError("The signing certificate is not authorized by the supplied profile.")
-        if (app / "Contents/embedded.provisionprofile").read_bytes() != configuration.provisioning_profile.read_bytes():
-            raise ValueError("The embedded profile differs from the validated profile.")
-    elif (app / "Contents/embedded.provisionprofile").exists() or (app / "Contents/embedded.provisionprofile").is_symlink():
-        raise ValueError("This build must not contain an unexpected provisioning profile.")
+        if profile_signer not in profile["allowed_certificates"]:
+            raise ValueError("The signing certificate is not authorized by the supplied profile.")
+    validate_embedded_profile(app, configuration, profile)
     return {"native_components": native, "privacy_manifest_sha256": privacy_hashes,
+            "native_signer_certificate_sha256": signer_fingerprints,
             "quarantine_attribute_absent": True,
             "excluded_python_modules": list(STORE_EXCLUDED_MODULES), "asset_source_mapping": assets,
             "native_notification_sound_sha256": notification_sounds,
@@ -386,6 +454,10 @@ def parse_arguments(argv=None):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--preview", action="store_true", help="Ad-hoc app and unsigned package for local engineering only.")
     mode.add_argument("--distribution", action="store_true", help="Create a locally signed Store package. Does not upload it.")
+    parser.add_argument("--upload-candidate", action="store_true",
+                        help="With --distribution, leave unanswered encryption classification unset for upload only. Does not upload or submit.")
+    parser.add_argument("--require-testflight-profile", action="store_true",
+                        help="Require a supplied profile for intended TestFlight use. Apple determines actual eligibility.")
     parser.add_argument("--bundle-id", required=True, help="Explicit product identifier; registration is a separate owner step.")
     parser.add_argument("--version", default="0.2.5")
     parser.add_argument("--build-number", default="10")
@@ -399,9 +471,15 @@ def parse_arguments(argv=None):
                               help="Use only the reviewed unrestricted sandbox capabilities, without a profile. Not a TestFlight build.")
     parser.add_argument("--support-strategy", choices=["hidden", "us-external"], help="Hidden support by default; us-external permits optional support only after native US storefront checks.")
     parser.add_argument("--uses-non-exempt-encryption", choices=["yes", "no"],
-                        help="Owner-approved export classification, required for distribution. No answer is inferred.")
+                        help="Owner-approved export classification, required for ordinary distribution. No answer is inferred.")
     parser.add_argument("--encryption-compliance-code", help="Apple-issued export compliance code, if required.")
     args = parser.parse_args(argv)
+    if args.upload_candidate and not args.distribution:
+        parser.error("--upload-candidate requires --distribution.")
+    if args.upload_candidate and (args.uses_non_exempt_encryption is not None or args.encryption_compliance_code is not None):
+        parser.error("--upload-candidate cannot include an encryption answer or compliance code.")
+    if args.require_testflight_profile and (not args.distribution or not args.provisioning_profile or args.profile_free):
+        parser.error("--require-testflight-profile requires --distribution and --provisioning-profile, without --profile-free.")
     signing = [args.app_signing_identity, args.installer_signing_identity, args.team_id, args.provisioning_profile]
     if args.preview and (any(signing) or args.profile_free):
         parser.error("A preview cannot claim a distribution identity, team, or profile.")
@@ -414,7 +492,7 @@ def parse_arguments(argv=None):
             parser.error("Use a Mac Installer Distribution identity, not Developer ID Installer.")
         if args.support_strategy not in {"hidden", "us-external"}:
             parser.error("Distribution requires an explicit --support-strategy hidden or us-external.")
-        if args.uses_non_exempt_encryption is None:
+        if args.uses_non_exempt_encryption is None and not args.upload_candidate:
             parser.error("Distribution requires an owner-approved --uses-non-exempt-encryption yes or no answer.")
     try:
         configuration = AppConfiguration(args.bundle_id, args.version, args.build_number,
@@ -423,7 +501,9 @@ def parse_arguments(argv=None):
                                          store_support_strategy=args.support_strategy or "hidden",
                                          uses_non_exempt_encryption=(None if args.uses_non_exempt_encryption is None else
                                                                     args.uses_non_exempt_encryption == "yes"),
-                                         encryption_compliance_code=args.encryption_compliance_code)
+                                         encryption_compliance_code=args.encryption_compliance_code,
+                                         defer_encryption_classification=args.upload_candidate,
+                                         require_testflight_profile=args.require_testflight_profile)
     except ValueError as error:
         parser.error(str(error))
     output = args.output.absolute()
@@ -442,7 +522,9 @@ def main():
     profile = read_profile(args.provisioning_profile, configuration) if args.distribution and args.provisioning_profile else None
     source = source_hashes()
     output.mkdir(parents=True, exist_ok=False)
-    app = build_app(args.app_signing_identity, sandboxed=True, build_root=output, configuration=configuration)
+    profile_arguments = {"provisioning_profile_bytes": validated_profile_bytes(profile)} if profile else {}
+    app = build_app(args.app_signing_identity, sandboxed=True, build_root=output, configuration=configuration,
+                    **profile_arguments)
     proof = validate_store_bundle(app, configuration, profile)
     if source_hashes() != source:
         raise ValueError("Source files changed during the build; preserve this partial checkpoint and rebuild into a new directory.")
@@ -460,10 +542,23 @@ def main():
               "store_support_strategy": configuration.store_support_strategy,
               "provisioning_mode": "profile-free-unrestricted" if args.profile_free else "supplied-profile" if args.provisioning_profile else "preview",
               "testflight_validated": False,
+              "build_intent": "testflight-profile-required" if configuration.require_testflight_profile else
+                              "store-upload-candidate" if configuration.defer_encryption_classification else
+                              "store-distribution" if args.distribution else "local-preview",
+              "provisioning_profile": ({"sha256": profile["sha256"], "bytes": len(validated_profile_bytes(profile)),
+                                         "expires_utc": profile["expires_utc"],
+                                         "authorized_certificate_sha256": [hashlib.sha256(value).hexdigest()
+                                                                            for value in profile["allowed_certificates"]],
+                                         "embedded_snapshot_verified": True} if profile else None),
+              "upload_candidate": configuration.defer_encryption_classification,
+              "encryption_classification": ("deferred" if configuration.defer_encryption_classification else
+                                            "owner-declared" if configuration.uses_non_exempt_encryption is not None else "unset-preview"),
               "submission_ready": False, "app_store_registration_verified": False,
               "uploaded": False, "installed": False, "provider_calls": False,
               "receipt": "No recipient receipt is bundled; Store purchase validation is not exercised by this local build.",
-              "remaining_gates": ["Owner-confirmed registered identifier and App Store Connect product metadata",
+              "remaining_gates": (["Owner-approved encryption classification and any required Apple export compliance steps before testing or submission"]
+                                  if configuration.defer_encryption_classification else []) +
+                                 ["Owner-confirmed registered identifier and App Store Connect product metadata",
                                   "Distribution signing and installer validation; a profile is needed for TestFlight or restricted capabilities" if args.preview else
                                   "Apple processing and TestFlight on a clean recipient Mac",
                                   "Actual provider compatibility, accessibility and offline/recovery evidence",

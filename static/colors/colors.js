@@ -45,8 +45,10 @@
   function providerUsage(provider) {
     const id = provider.toLowerCase();
     const example = usage.find(item => item.provider === provider);
+    const mark = document.documentElement.dataset.providerMarks === "off" ? ""
+      : `<span class="usage-logo usage-logo-${id}" aria-hidden="true"></span>`;
     return `<section class="usage-provider" data-provider="${id}" aria-labelledby="example-${id}-usage-heading">
-      <h2 id="example-${id}-usage-heading" class="usage-provider-heading"><span class="usage-logo usage-logo-${id}" aria-hidden="true"></span>${provider}</h2>
+      <h2 id="example-${id}-usage-heading" class="usage-provider-heading">${mark}${provider}</h2>
       <div class="usage-windows">
         <div class="usage-window" aria-label="${provider} weekly usage"><div class="usage-top"><span class="usage-label">Weekly</span><span class="usage-value">${example.remaining}% remaining</span></div><div class="usage-bottom"><span class="usage-reset">Resets in ${example.reset}</span></div></div>
         <div class="usage-window usage-credits" aria-label="${provider} credits available"><div class="usage-top"><span class="usage-label">Credits available</span><span class="usage-value">${example.credits}</span></div><div class="usage-bottom"><span class="usage-freshness">Sample balance</span></div></div>

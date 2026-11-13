@@ -3,6 +3,8 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import io
+import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -199,6 +201,202 @@ class StoreSigningPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             replace(config, uses_non_exempt_encryption=False, encryption_compliance_code="TEST-CODE")
         self.assertEqual(AppConfiguration(self.identifier, "0.2.5", "62", signing_channel="store-preview").encryption_metadata(), {})
+
+    def upload_flags(self):
+        return ["--distribution", "--upload-candidate", "--app-signing-identity", "Apple Distribution: Example",
+                "--installer-signing-identity", "3rd Party Mac Developer Installer: Example",
+                "--team-id", self.team, "--support-strategy", "hidden"]
+
+    def test_upload_candidate_requires_explicit_opt_in_and_preserves_signing_inputs(self):
+        with patch("subprocess.run", side_effect=AssertionError("No identity, profile or account reads")):
+            for provisioning in (["--profile-free"], ["--provisioning-profile", "unread-fixture"]):
+                with self.subTest(provisioning=provisioning):
+                    flags = self.upload_flags() + provisioning
+                    args, config, _ = self.arguments(*flags)
+                    self.assertTrue(args.upload_candidate)
+                    self.assertEqual(config.signing_channel, "store-distribution")
+                    self.assertEqual(config.team_id, self.team)
+                    self.assertTrue(config.defer_encryption_classification)
+                    self.assertIsNone(config.uses_non_exempt_encryption)
+                    self.assertEqual(config.encryption_metadata(), {})
+                    flags.remove("--upload-candidate")
+                    with patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                        self.arguments(*flags)
+
+    def test_testflight_intent_requires_distribution_and_supplied_profile(self):
+        from dataclasses import replace
+        valid = self.upload_flags() + ["--provisioning-profile", "unread-fixture", "--require-testflight-profile"]
+        with patch("subprocess.run", side_effect=AssertionError("No profile or signing access during argument parsing")):
+            args, config, _ = self.arguments(*valid)
+            self.assertTrue(args.require_testflight_profile)
+            self.assertTrue(config.require_testflight_profile)
+            self.assertTrue(config.defer_encryption_classification)
+            self.assertEqual(config.encryption_metadata(), {})
+            for invalid in (["--preview", "--require-testflight-profile"],
+                            self.upload_flags() + ["--require-testflight-profile"],
+                            self.upload_flags() + ["--profile-free", "--require-testflight-profile"]):
+                with self.subTest(arguments=invalid), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                    self.arguments(*invalid)
+        for changes in ({"provisioning_profile": None}, {"require_testflight_profile": 1},
+                        {"require_testflight_profile": "yes"},
+                        {"signing_channel": "store-preview", "team_id": None, "defer_encryption_classification": False}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                replace(config, **changes)
+
+    def test_upload_candidate_rejects_conflicts_and_missing_or_wrong_signing_inputs(self):
+        flags = self.upload_flags() + ["--profile-free"]
+        wrong = [["--preview", "--upload-candidate"], self.upload_flags(),
+                 flags + ["--provisioning-profile", "unread-fixture"],
+                 flags + ["--uses-non-exempt-encryption", "no"],
+                 flags + ["--uses-non-exempt-encryption", "yes"],
+                 flags + ["--encryption-compliance-code", "TEST-CODE"]]
+        for key, value in (("--app-signing-identity", "Developer ID Application: Example"),
+                           ("--installer-signing-identity", "Developer ID Installer: Example"),
+                           ("--team-id", "INVALID"), ("--support-strategy", "worldwide")):
+            changed = list(flags)
+            changed[changed.index(key) + 1] = value
+            wrong.append(changed)
+            missing = list(flags)
+            index = missing.index(key)
+            del missing[index:index + 2]
+            wrong.append(missing)
+        with patch("subprocess.run", side_effect=AssertionError("No compile, signing or account calls")):
+            for arguments in wrong:
+                with self.subTest(arguments=arguments), patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+                    self.arguments(*arguments)
+
+    def test_deferred_configuration_cannot_claim_an_answer_or_bypass_sandbox_capabilities(self):
+        from dataclasses import replace
+        config = AppConfiguration(self.identifier, "0.2.5", "70", signing_channel="store-distribution",
+                                  team_id=self.team, defer_encryption_classification=True)
+        for changes in ({"uses_non_exempt_encryption": False}, {"uses_non_exempt_encryption": True},
+                        {"encryption_compliance_code": "TEST-CODE"}, {"encryption_compliance_code": ""},
+                        {"defer_encryption_classification": 1}, {"defer_encryption_classification": "yes"},
+                        {"signing_channel": "store-preview", "team_id": None},
+                        {"signing_channel": "direct", "team_id": None}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                replace(config, **changes)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "must-not-exist"
+            with patch("subprocess.run", side_effect=AssertionError("No compiler or signer may run")):
+                with self.assertRaisesRegex(ValueError, "App Sandbox"):
+                    build_app(configuration=config, build_root=output)
+                with patch("build_support.validate_profile_free_capabilities", side_effect=ValueError("unreviewed capability")):
+                    with self.assertRaisesRegex(ValueError, "unreviewed capability"):
+                        build_app(configuration=config, sandboxed=True, build_root=output)
+            self.assertFalse(output.exists())
+
+    def test_encryption_metadata_requires_exact_keys_and_boolean_types(self):
+        from dataclasses import replace
+        config = AppConfiguration(self.identifier, "0.2.5", "70", signing_channel="store-distribution",
+                                  team_id=self.team, defer_encryption_classification=True)
+        build_store.validate_encryption_metadata({}, config)
+        for extra in ({"ITSAppUsesNonExemptEncryption": False}, {"ITSAppUsesNonExemptEncryption": None},
+                      {"ITSEncryptionExportComplianceCode": ""}, {"ITSEncryptionExportComplianceCode": "TEST-CODE"}):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, "encryption declaration"):
+                build_store.validate_encryption_metadata(extra, config)
+        declared = replace(config, defer_encryption_classification=False, uses_non_exempt_encryption=False)
+        build_store.validate_encryption_metadata({"ITSAppUsesNonExemptEncryption": False}, declared)
+        for metadata in ({}, {"ITSAppUsesNonExemptEncryption": 0}, {"ITSAppUsesNonExemptEncryption": True},
+                         {"ITSAppUsesNonExemptEncryption": False, "ITSEncryptionExportComplianceCode": "TEST-CODE"}):
+            with self.subTest(metadata=metadata), self.assertRaises(ValueError):
+                build_store.validate_encryption_metadata(metadata, declared)
+
+    def test_deferred_bundle_rejects_encryption_keys_in_main_or_helper(self):
+        config = AppConfiguration(self.identifier, "0.2.5", "70", signing_channel="store-distribution",
+                                  team_id=self.team, defer_encryption_classification=True)
+        main_info = {"CFBundleIdentifier": config.bundle_id, "CFBundleVersion": config.build_number,
+                     "CFBundleShortVersionString": config.version, "CFBundlePackageType": "APPL",
+                     "AgentBoardSandboxed": True, "AgentBoardDistributionChannel": "store-distribution",
+                     "AgentBoardStoreDistribution": True, "AgentBoardStoreSupportStrategy": "hidden",
+                     "CFBundleSupportedPlatforms": ["MacOSX"], "DTPlatformName": "macosx",
+                     "LSApplicationCategoryType": "public.app-category.developer-tools", "CFBundleIconFile": "AgentBoard.icns"}
+        helper_info = {"CFBundleIdentifier": config.helper_id, "CFBundleVersion": config.build_number,
+                       "CFBundleShortVersionString": config.version, "AgentBoardSandboxed": True,
+                       "AgentBoardStoreDistribution": True, "AgentBoardStoreSupportStrategy": "hidden", "LSBackgroundOnly": True}
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Fixture.app"
+            for contents in (app / "Contents", app / HELPER / "Contents"):
+                (contents / "Resources").mkdir(parents=True)
+            main = app / "Contents/Info.plist"
+            helper = app / HELPER / "Contents/Info.plist"
+            main.write_bytes(plistlib.dumps(main_info))
+            helper.write_bytes(plistlib.dumps(helper_info))
+            (app / "Contents/Resources/AgentBoard.icns").write_bytes(b"icns-fixture")
+            policy = app / HELPER / "Contents/Resources/sandbox-collector-policy.json"
+            policy.write_text(json.dumps({"version": 1, "sandbox_required": True}))
+            with patch("build_store.checked"), patch("build_store.validate_store_fixture_exclusion"), \
+                    patch("build_store.signed_entitlements", side_effect=lambda path: SANDBOX_APP_ENTITLEMENTS if path == app else SANDBOX_HELPER_ENTITLEMENTS), \
+                    patch("build_store.validate_privacy", side_effect=RuntimeError("Reached unchanged privacy checks")):
+                with self.assertRaisesRegex(RuntimeError, "unchanged privacy checks"):
+                    validate_store_bundle(app, config)
+                for path, original in ((main, main_info), (helper, helper_info)):
+                    for key, value in (("ITSAppUsesNonExemptEncryption", False), ("ITSEncryptionExportComplianceCode", "TEST-CODE")):
+                        path.write_bytes(plistlib.dumps({**original, key: value}))
+                        with self.subTest(bundle=path.parent, key=key), self.assertRaisesRegex(ValueError, "encryption declaration"):
+                            validate_store_bundle(app, config)
+                        path.write_bytes(plistlib.dumps(original))
+                # An ordinary declared build also rejects independent helper
+                # answers; the main app remains the sole declaration source.
+                from dataclasses import replace
+                for answer in (False, True):
+                    declared = replace(config, defer_encryption_classification=False,
+                                       uses_non_exempt_encryption=answer)
+                    main.write_bytes(plistlib.dumps({**main_info, **declared.encryption_metadata()}))
+                    with self.assertRaisesRegex(RuntimeError, "unchanged privacy checks"):
+                        validate_store_bundle(app, declared)
+                    for key, value in (("ITSAppUsesNonExemptEncryption", answer),
+                                       ("ITSAppUsesNonExemptEncryption", not answer),
+                                       ("ITSEncryptionExportComplianceCode", "TEST-CODE")):
+                        helper.write_bytes(plistlib.dumps({**helper_info, key: value}))
+                        with self.subTest(answer=answer, key=key, value=value), self.assertRaisesRegex(ValueError, "encryption declaration"):
+                            validate_store_bundle(app, declared)
+                        helper.write_bytes(plistlib.dumps(helper_info))
+
+    def test_upload_candidate_receipt_keeps_submission_and_upload_pending(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            app = root / "Fixture.app"
+            app.mkdir()
+            args, config, _ = self.arguments(*self.upload_flags(), "--profile-free")
+            output = root / "candidate"
+            commands = []
+
+            def package_command(arguments):
+                commands.append(arguments)
+                self.assertEqual(arguments[:2], ["/usr/bin/productbuild", "--component"])
+                self.assertIn("--sign", arguments)
+                Path(arguments[-1]).write_bytes(b"fixture package")
+
+            with patch("build_store.parse_arguments", return_value=(args, config, output)), \
+                    patch("build_store.validate_profile_free_capabilities") as capabilities, \
+                    patch("build_store.read_profile", side_effect=AssertionError("No profile read in profile-free mode")), \
+                    patch("build_store.source_hashes", return_value={"fixture": "hash"}), \
+                    patch("build_store.build_app", return_value=app) as build, \
+                    patch("build_store.validate_store_bundle", return_value={}) as bundle_check, \
+                    patch("build_store.checked", side_effect=package_command), \
+                    patch("build_store.verify_package", return_value={}) as package_check, \
+                    patch("build_store.validate_no_quarantine") as quarantine_check, \
+                    patch("subprocess.run", side_effect=AssertionError("No real tools or account calls")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                build_store.main()
+            report = json.loads((output / "STORE-PACKAGE-CHECKS.json").read_text())
+            self.assertTrue(report["upload_candidate"])
+            self.assertEqual(report["build_intent"], "store-upload-candidate")
+            self.assertIsNone(report["provisioning_profile"])
+            self.assertEqual(report["encryption_classification"], "deferred")
+            self.assertFalse(report["submission_ready"])
+            self.assertFalse(report["uploaded"])
+            self.assertFalse(report["testflight_validated"])
+            self.assertIn("Owner-approved encryption classification", report["remaining_gates"][0])
+            self.assertEqual(report["channel"], "store-distribution")
+            self.assertEqual(report["provisioning_mode"], "profile-free-unrestricted")
+            capabilities.assert_called_once_with()
+            build.assert_called_once_with(args.app_signing_identity, sandboxed=True, build_root=output, configuration=config)
+            bundle_check.assert_called_once_with(app, config, None)
+            self.assertEqual(package_check.call_count, 1)
+            self.assertEqual(quarantine_check.call_count, 2)
+            self.assertEqual(len(commands), 1)
 
     def test_store_fixture_binary_marker_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -421,7 +619,305 @@ class StoreQuarantineTests(unittest.TestCase):
                                                                   check=True, capture_output=True).stdout.splitlines())
 
 
+class StoreProfileSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix="agent-board-profile-fixture-")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.external = self.root / "external.provisionprofile"
+        self.original = b"disposable signed profile A"
+        self.replacement = b"different unvalidated profile B"
+        self.external.write_bytes(self.original)
+        self.config = AppConfiguration("com.example.profile", "0.2.5", "71", signing_channel="store-distribution",
+                                       team_id="ABCDEFGHIJ", provisioning_profile=self.external,
+                                       require_testflight_profile=True, uses_non_exempt_encryption=False)
+        self.payload = {"Platform": ["OSX"], "TeamIdentifier": ["ABCDEFGHIJ"],
+                        "ExpirationDate": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=30),
+                        "DeveloperCertificates": [b"public certificate A"],
+                        "Entitlements": {"com.apple.application-identifier": "ABCDEFGHIJ.com.example.profile",
+                                         "com.apple.developer.team-identifier": "ABCDEFGHIJ"}}
+
+    def cms(self, arguments):
+        self.assertEqual(arguments[:4], ["/usr/bin/security", "cms", "-D", "-i"])
+        snapshot = Path(arguments[4])
+        self.assertNotEqual(snapshot, self.external)
+        self.assertEqual(snapshot.read_bytes(), self.original)
+        self.assertEqual(stat.S_IMODE(snapshot.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(snapshot.parent.stat().st_mode), 0o700)
+        return subprocess.CompletedProcess(arguments, 0, plistlib.dumps(self.payload).decode(), "")
+
+    def read(self, side_effect=None):
+        with patch("build_store.checked", side_effect=side_effect or self.cms), \
+                patch("subprocess.run", side_effect=AssertionError("No real CMS, compiler, or signer")):
+            return build_store.read_profile(self.external, self.config)
+
+    def test_profile_replaced_after_preflight_cannot_change_validated_or_embedded_input(self):
+        snapshots = []
+
+        def replacement_during_cms(arguments):
+            response = self.cms(arguments)
+            snapshots.append(Path(arguments[4]))
+            self.external.write_bytes(self.replacement)
+            return response
+
+        profile = self.read(replacement_during_cms)
+        self.assertEqual(profile["data"], self.original)
+        self.assertEqual(profile["sha256"], hashlib.sha256(self.original).hexdigest())
+        self.assertEqual(self.external.read_bytes(), self.replacement)
+        self.assertTrue(all(not path.exists() for path in snapshots))
+        app = self.root / "Fixture.app"
+        (app / "Contents").mkdir(parents=True)
+        embedded = app / "Contents/embedded.provisionprofile"
+        embedded.write_bytes(self.original)
+        build_store.validate_embedded_profile(app, self.config, profile)
+        # Matching the current external path is insufficient. Only pinned A is valid.
+        embedded.write_bytes(self.replacement)
+        with self.assertRaisesRegex(ValueError, "validated snapshot"):
+            build_store.validate_embedded_profile(app, self.config, profile)
+        embedded.unlink()
+        embedded.symlink_to(self.external)
+        with self.assertRaises(ValueError):
+            build_store.validate_embedded_profile(app, self.config, profile)
+
+    def test_profile_snapshot_changed_during_cms_is_rejected(self):
+        def modified_snapshot(arguments):
+            response = self.cms(arguments)
+            Path(arguments[4]).write_bytes(self.replacement)
+            return response
+
+        with self.assertRaisesRegex(ValueError, "snapshot changed"):
+            self.read(modified_snapshot)
+
+    def test_profile_input_change_during_read_is_rejected_before_cms(self):
+        original_fstat = os.fstat
+        calls = []
+
+        def changing_stat(descriptor):
+            calls.append(descriptor)
+            if len(calls) == 2:
+                self.external.write_bytes(self.replacement)
+            return original_fstat(descriptor)
+
+        with patch("build_store.os.fstat", side_effect=changing_stat), \
+                patch("build_store.checked", side_effect=AssertionError("Unstable profile must not reach CMS")), \
+                self.assertRaisesRegex(ValueError, "changed while"):
+            build_store.read_profile(self.external, self.config)
+
+    def test_profile_links_empty_oversized_and_special_inputs_are_rejected_before_cms(self):
+        linked = self.root / "linked.provisionprofile"
+        linked.symlink_to(self.external)
+        empty = self.root / "empty.provisionprofile"
+        empty.touch()
+        oversized = self.root / "oversized.provisionprofile"
+        with oversized.open("wb") as handle:
+            handle.truncate(build_store.MAX_PROFILE_BYTES + 1)
+        fifo = self.root / "fifo.provisionprofile"
+        os.mkfifo(fifo)
+        with patch("build_store.checked", side_effect=AssertionError("Unsafe input must not reach CMS")):
+            for path in (linked, empty, oversized, fifo, self.root):
+                with self.subTest(input=path.name), self.assertRaises(ValueError):
+                    build_store.read_profile(path, self.config)
+
+    def test_invalid_cms_profile_and_bad_snapshot_digest_fail_closed(self):
+        self.payload["TeamIdentifier"] = ["WRONGTEAM1"]
+        with self.assertRaisesRegex(ValueError, "requested team"):
+            self.read()
+        self.payload["TeamIdentifier"] = ["ABCDEFGHIJ"]
+        profile = self.read()
+        for changed in ({**profile, "data": self.replacement}, {**profile, "sha256": "0" * 64},
+                        {**profile, "data": bytearray(self.original)}, {}, None):
+            with self.subTest(profile_type=type(changed).__name__), self.assertRaises(ValueError):
+                build_store.validated_profile_bytes(changed)
+
+    def test_build_app_embeds_pinned_profile_after_external_replacement(self):
+        profile = self.read()
+        self.external.write_bytes(self.replacement)
+        source = self.root / "source"
+        (source / "assets").mkdir(parents=True)
+        (source / "assets/AgentBoard.icns").write_bytes(b"icns-fixture")
+        (source / "MacApp.swift").write_text("fixture native source")
+        (source / "entitlements").mkdir()
+        (source / "entitlements/sandbox-app.plist").write_bytes(plistlib.dumps(SANDBOX_APP_ENTITLEMENTS))
+        commands = []
+
+        def fake_tool(arguments, **kwargs):
+            commands.append(arguments)
+            if arguments[0] == "/usr/bin/swiftc":
+                Path(arguments[-1]).write_bytes(b"fixture executable")
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+
+        missing = self.root / "missing-snapshot-output"
+        with patch("subprocess.run", side_effect=AssertionError("Missing snapshot must fail before any tools")), \
+                self.assertRaisesRegex(ValueError, "validated profile snapshot"):
+            build_app(configuration=self.config, sandboxed=True, build_root=missing)
+        self.assertFalse(missing.exists())
+        with patch("install.ROOT", source), patch("install.copy_license_notices"), patch("install.copy_alert_sounds"), \
+                patch("build_support.copy_collector"), patch("build_support.copy_privacy_manifest"), \
+                patch("build_support.validate_bundle", return_value=[]), \
+                patch("build_support.xcode_build_metadata", return_value={}), \
+                patch("subprocess.run", side_effect=fake_tool), contextlib.redirect_stdout(io.StringIO()):
+            app = build_app("Apple Distribution: Fixture", configuration=self.config, sandboxed=True,
+                            build_root=self.root / "output", provisioning_profile_bytes=profile["data"])
+        self.assertEqual((app / "Contents/embedded.provisionprofile").read_bytes(), self.original)
+        build_store.validate_embedded_profile(app, self.config, profile)
+        self.assertEqual(self.external.read_bytes(), self.replacement)
+        self.assertTrue(any("--entitlements" in command for command in commands))
+
+    def test_provisioned_receipt_binds_private_snapshot_without_claiming_testflight(self):
+        args = type("Arguments", (), {"distribution": True, "preview": False, "profile_free": False,
+                                      "app_signing_identity": "Apple Distribution: Fixture",
+                                      "installer_signing_identity": "3rd Party Mac Developer Installer: Fixture",
+                                      "provisioning_profile": self.external})()
+        output = self.root / "package-output"
+        app = self.root / "Fixture.app"
+        (app / "Contents").mkdir(parents=True)
+
+        def tools(arguments):
+            if arguments[0] == "/usr/bin/security":
+                response = self.cms(arguments)
+                self.external.write_bytes(self.replacement)
+                return response
+            self.assertEqual(arguments[:2], ["/usr/bin/productbuild", "--component"])
+            Path(arguments[-1]).write_bytes(b"fixture signed package")
+
+        def fixture_build(identity, **kwargs):
+            self.assertEqual(kwargs["provisioning_profile_bytes"], self.original)
+            (app / "Contents/embedded.provisionprofile").write_bytes(kwargs["provisioning_profile_bytes"])
+            return app
+
+        def verify_profile(bundle, config, profile):
+            build_store.validate_embedded_profile(bundle, config, profile)
+            return {"native_signer_certificate_sha256": {"Contents/MacOS/AgentBoard": "a" * 64}}
+
+        with patch("build_store.parse_arguments", return_value=(args, self.config, output)), \
+                patch("build_store.source_hashes", return_value={}), patch("build_store.checked", side_effect=tools), \
+                patch("build_store.build_app", side_effect=fixture_build), \
+                patch("build_store.validate_store_bundle", side_effect=verify_profile), \
+                patch("build_store.verify_package", return_value={}), patch("build_store.validate_no_quarantine"), \
+                patch("subprocess.run", side_effect=AssertionError("No real signing or account operations")), \
+                contextlib.redirect_stdout(io.StringIO()):
+            build_store.main()
+        text = (output / "STORE-PACKAGE-CHECKS.json").read_text()
+        report = json.loads(text)
+        self.assertEqual(report["build_intent"], "testflight-profile-required")
+        self.assertEqual(report["provisioning_profile"]["sha256"], hashlib.sha256(self.original).hexdigest())
+        self.assertEqual(report["provisioning_profile"]["authorized_certificate_sha256"],
+                         [hashlib.sha256(b"public certificate A").hexdigest()])
+        self.assertTrue(report["provisioning_profile"]["embedded_snapshot_verified"])
+        self.assertNotIn(self.original.decode(), text)
+        self.assertNotIn(str(self.external), text)
+        for claim in ("testflight_validated", "submission_ready", "uploaded", "installed", "provider_calls"):
+            self.assertFalse(report[claim])
+
+    def test_profile_binding_checks_actual_main_signer_and_records_every_native_fingerprint(self):
+        profile = self.read()
+        app = self.root / "SignedFixture.app"
+        main = app / "Contents/MacOS/AgentBoard"
+        helper = app / HELPER / "Contents/MacOS/agent-board-collector"
+        library = app / HELPER / "Contents/Frameworks/libpython3.12.dylib"
+        for path in (main, helper, library):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"unsigned disposable native fixture")
+        resources = app / "Contents/Resources"
+        resources.mkdir()
+        (resources / "AgentBoard.icns").write_bytes(b"icns-fixture")
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": self.config.bundle_id, "CFBundleVersion": "71", "CFBundleShortVersionString": "0.2.5",
+            "CFBundlePackageType": "APPL", "AgentBoardSandboxed": True, "AgentBoardDistributionChannel": "store-distribution",
+            "AgentBoardStoreDistribution": True, "AgentBoardStoreSupportStrategy": "hidden",
+            "CFBundleSupportedPlatforms": ["MacOSX"], "DTPlatformName": "macosx", "DTSDKName": "macosx27.2",
+            "LSApplicationCategoryType": "public.app-category.developer-tools", "CFBundleIconFile": "AgentBoard.icns",
+            "LSMinimumSystemVersion": "13.0", "ITSAppUsesNonExemptEncryption": False}))
+        (app / HELPER / "Contents/Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": self.config.helper_id, "CFBundleVersion": "71", "CFBundleShortVersionString": "0.2.5",
+            "AgentBoardSandboxed": True, "AgentBoardStoreDistribution": True, "AgentBoardStoreSupportStrategy": "hidden",
+            "LSBackgroundOnly": True}))
+        policy = app / HELPER / "Contents/Resources/sandbox-collector-policy.json"
+        policy.parent.mkdir()
+        policy.write_text(json.dumps({"version": 1, "sandbox_required": True}))
+        privacy_target = "static/about/privacy.html"
+        privacy_source = "store-listing/site/privacy.html"
+        privacy = policy.parent / privacy_target
+        privacy.parent.mkdir(parents=True)
+        privacy.write_bytes(build_store.runtime_asset_content(privacy_target, (ROOT / privacy_source).read_bytes()))
+        embedded = app / "Contents/embedded.provisionprofile"
+        embedded.write_bytes(profile["data"])
+        certificates = {main: b"public certificate A", helper: b"public certificate B", library: b"public certificate C"}
+        components = [{"path": str(path.relative_to(app)), "linked_sdk": ["27.2"]} for path in certificates]
+        identifiers = {app: self.config.bundle_id, main: self.config.bundle_id,
+                       app / HELPER: self.config.helper_id, helper: self.config.helper_id, library: "library"}
+        corrupt_during_verification = []
+
+        def public_signature_tools(arguments):
+            path = Path(arguments[-1])
+            if "--extract-certificates" in arguments:
+                prefix = Path(arguments[-2])
+                Path(str(prefix) + "0").write_bytes(certificates[path])
+                if corrupt_during_verification and path == helper:
+                    embedded.write_bytes(self.replacement)
+            return subprocess.CompletedProcess(arguments, 0, "", "Identifier=" + identifiers[path] +
+                "\nTeamIdentifier=ABCDEFGHIJ\nAuthority=Apple Distribution: Fixture\n")
+
+        main_entitlements = {**SANDBOX_APP_ENTITLEMENTS,
+                             "com.apple.application-identifier": "ABCDEFGHIJ." + self.config.bundle_id,
+                             "com.apple.developer.team-identifier": "ABCDEFGHIJ"}
+        from types import SimpleNamespace
+        archive_reader = type(sys)("PyInstaller.archive.readers")
+        archive_reader.CArchiveReader = lambda _: SimpleNamespace(
+            open_embedded_archive=lambda _: SimpleNamespace(toc={}))
+        with patch("build_store.checked", side_effect=public_signature_tools), patch("build_store.validate_no_quarantine"), \
+                patch("build_store.validate_store_fixture_exclusion"), patch("build_store.validate_privacy", return_value="fixture"), \
+                patch("build_store.signed_entitlements", side_effect=lambda path: main_entitlements if path == app else
+                      SANDBOX_HELPER_ENTITLEMENTS if path == app / HELPER else {}), \
+                patch("build_store.runtime_asset_mapping", return_value={privacy_target: privacy_source}), patch("build_store.ALERT_SOUND_IDS", ()), \
+                patch("build_store.validate_bundle", return_value=components), \
+                patch.dict(sys.modules, {"PyInstaller.archive.readers": archive_reader}), \
+                patch("subprocess.run", side_effect=AssertionError("No real signing or key access")):
+            proof = validate_store_bundle(app, self.config, profile)
+            self.assertEqual(proof["native_signer_certificate_sha256"],
+                             {str(path.relative_to(app)): hashlib.sha256(data).hexdigest() for path, data in certificates.items()})
+            certificates[main] = b"unauthorized certificate"
+            with self.assertRaisesRegex(ValueError, "not authorized by the supplied profile"):
+                validate_store_bundle(app, self.config, profile)
+            certificates[main] = b"public certificate A"
+            corrupt_during_verification.append(True)
+            with self.assertRaisesRegex(ValueError, "validated snapshot"):
+                validate_store_bundle(app, self.config, profile)
+
+
 class StoreArtifactTests(unittest.TestCase):
+
+    def test_upload_candidate_app_plist_omits_both_unanswered_encryption_keys(self):
+        config = AppConfiguration("com.example.uploadcandidate", "0.2.5", "70", signing_channel="store-distribution",
+                                  team_id="ABCDEFGHIJ", defer_encryption_classification=True)
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            (source / "assets").mkdir(parents=True)
+            (source / "assets/AgentBoard.icns").write_bytes(b"icns-fixture")
+            (source / "MacApp.swift").write_text("fixture native source")
+            commands = []
+
+            def fake_process(arguments, **kwargs):
+                commands.append(arguments)
+                if arguments[0] == "/usr/bin/swiftc":
+                    Path(arguments[-1]).write_bytes(b"fixture executable")
+                return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
+
+            with patch("install.ROOT", source), patch("install.copy_license_notices"), patch("install.copy_alert_sounds"), \
+                    patch("build_support.copy_collector"), patch("build_support.copy_privacy_manifest"), \
+                    patch("build_support.validate_bundle", return_value=[]), \
+                    patch("build_support.xcode_build_metadata", return_value={"CFBundleSupportedPlatforms": ["MacOSX"]}), \
+                    patch("subprocess.run", side_effect=fake_process), contextlib.redirect_stdout(io.StringIO()):
+                app = build_app("Apple Distribution: Example", sandboxed=True, build_root=Path(directory) / "output", configuration=config)
+            info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+            self.assertNotIn("ITSAppUsesNonExemptEncryption", info)
+            self.assertNotIn("ITSEncryptionExportComplianceCode", info)
+            self.assertTrue(info["AgentBoardSandboxed"])
+            self.assertTrue(info["AgentBoardStoreDistribution"])
+            self.assertEqual(info["AgentBoardDistributionChannel"], "store-distribution")
+            self.assertNotIn("AGENT_BOARD_DIRECT", commands[0])
+            self.assertIn("--entitlements", commands[1])
+            self.assertNotIn("runtime", commands[1])
 
     def test_license_staging_normalizes_private_source_permissions_before_signing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -631,6 +1127,40 @@ class StoreArtifactTests(unittest.TestCase):
         self.assertEqual(offset, len(content))
         self.assertIn(b"ic10", chunks)  # 1024px artwork
         self.assertTrue({b"ic04", b"icp4"}.intersection(chunks))  # 16px artwork
+
+
+class DirectReleaseIdentityTests(unittest.TestCase):
+    def test_download_requires_explicit_version_and_build(self):
+        from build_release import parse_arguments
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            for arguments in ([], ["--version", "0.2.5"], ["--build-number", "71"]):
+                with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
+                    parse_arguments(arguments)
+        _, configuration = parse_arguments(["--version", "0.2.5", "--build-number", "71"])
+        self.assertEqual((configuration.version, configuration.build_number), ("0.2.5", "71"))
+
+    def test_download_refuses_an_older_collector_in_the_selected_app(self):
+        from build_release import verify_release_identity
+
+        configuration = AppConfiguration("local.agentboard.display", "0.2.5", "71")
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Agent Board.app"
+            for bundle, identifier in ((app, configuration.bundle_id),
+                                       (app / HELPER, configuration.helper_id)):
+                contents = bundle / "Contents"
+                contents.mkdir(parents=True, exist_ok=True)
+                (contents / "Info.plist").write_bytes(plistlib.dumps({
+                    "CFBundleIdentifier": identifier, "CFBundleVersion": "71",
+                    "CFBundleShortVersionString": "0.2.5",
+                }))
+            self.assertEqual(verify_release_identity(app, configuration)["CFBundleVersion"], "71")
+            helper_info = app / HELPER / "Contents/Info.plist"
+            metadata = plistlib.loads(helper_info.read_bytes())
+            metadata["CFBundleVersion"] = "9"
+            helper_info.write_bytes(plistlib.dumps(metadata))
+            with self.assertRaisesRegex(SystemExit, "match the requested direct release identity"):
+                verify_release_identity(app, configuration)
 
 
 if __name__ == "__main__":

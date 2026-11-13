@@ -1,6 +1,6 @@
 # App Store listing draft
 
-This copy describes the sandboxed Store edition. Final screenshots and behavior must be checked against the candidate submitted for review. Price: Free.
+This is a local draft for the reduced sandboxed Store candidate. That reduced feature scope is not approved for release; the full version remains the main product. Final screenshots and behavior must be checked against the candidate approved for submission. Price: Free.
 
 ## Name
 
@@ -24,7 +24,7 @@ Choose a layout, theme and text size. Monitoring can continue from the menu bar 
 
 The built-in Sample Board lets you try the workflow without connecting a provider. Live monitoring reads only the local source folders you select. Codex weekly usage can appear when a verified local session record contains it; readings may be absent or stale.
 
-Board data stays on your Mac. There is no Agent Board account, analytics, advertising or developer-operated server. This edition does not monitor regular ChatGPT or Claude account chats, retrieve account usage or read saved sign-ins. Provider file formats can change; activity that cannot be confirmed is shown as unavailable.
+Board data stays on your Mac. There is no Agent Board account, analytics, advertising or developer-operated server. This edition does not monitor regular ChatGPT or Claude account chats or Claude cloud projects, retrieve account usage or read saved sign-ins. Provider file formats can change; activity that cannot be confirmed is shown as unavailable.
 
 Requires an Apple silicon Mac with macOS 13 or later. Live monitoring requires the supported provider apps and their separate accounts.
 

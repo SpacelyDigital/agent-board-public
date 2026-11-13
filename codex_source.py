@@ -25,7 +25,7 @@ from types import SimpleNamespace
 
 from source_access import require_source_path, require_source_directory, source_glob
 from claude_source import (_TranscriptBudget, _TranscriptCursor, _transcript_object,
-                           _transcript_constant, _transcript_float, TRANSCRIPT_MAX_BUFFER_BYTES,
+                           _transcript_constant, _transcript_float, _transcript_coverage, TRANSCRIPT_MAX_BUFFER_BYTES,
                            TRANSCRIPT_RECORD_BYTES, TRANSCRIPT_READ_CHUNK)
 from local_quota import parse_codex_credits
 
@@ -560,6 +560,8 @@ class CodexSource:
         self._last_good_scan: float | None = None
         self._indexed_paths: set[Path] = set()
         self._excluded_index_ids: set[str] = set()
+        self._thread_limit_reached = False
+        self._fallback_limit_reached = False
         self._index_lock = threading.RLock()
         self._cached_index = None
         self._index_retry_at = 0.0
@@ -653,6 +655,7 @@ class CodexSource:
         database = self.root / "state_5.sqlite"
         self._indexed_paths = set()
         self._excluded_index_ids = set()
+        self._thread_limit_reached = False
         if not self.confine_paths and not database.exists():
             return [], "Codex thread database is not present."
         try:
@@ -678,9 +681,10 @@ class CodexSource:
                         conditions.append("agent_path IS NULL")
                     rows = [dict(row) for row in conn.execute(
                         "SELECT * FROM threads WHERE " + " AND ".join(conditions) + " ORDER BY updated_at DESC LIMIT ?",
-                        params + [MAX_THREADS],
+                        params + [MAX_THREADS + 1],
                     )]
-                    rows = [row for row in rows if isinstance(row.get("id"), str) and 0 < len(row["id"]) <= 200
+                    limit_reached = len(rows) > MAX_THREADS
+                    rows = [row for row in rows[:MAX_THREADS] if isinstance(row.get("id"), str) and 0 < len(row["id"]) <= 200
                             and isinstance(row.get("rollout_path"), str) and 0 < len(row["rollout_path"]) <= 4096
                             and row["id"] not in excluded and not _is_subagent(row)]
                 finally:
@@ -688,6 +692,7 @@ class CodexSource:
             # Publish only after post-query source validation succeeded. Archive
             # and child exclusions belong to the same index transaction.
             self._indexed_paths, self._excluded_index_ids = indexed, excluded
+            self._thread_limit_reached = limit_reached
             return rows, None
         except (sqlite3.Error, OSError, ValueError, MemoryError):
             return [], self._index_error_detail or "Codex thread database could not be read."
@@ -741,6 +746,7 @@ class CodexSource:
 
     def _unindexed_paths(self, now: float) -> list[Path]:
         paths: list[tuple[float, Path]] = []
+        self._fallback_limit_reached = False
         # Newly created rollouts can arrive before their SQLite index row. Restrict
         # discovery to two UTC dates and recently modified files, never all history.
         current = datetime.fromtimestamp(now, timezone.utc)
@@ -756,10 +762,14 @@ class CodexSource:
                         modified = path.stat().st_mtime
                     except (OSError, ValueError):
                         continue
-                    if modified >= now - LOOKBACK_SECONDS:
+                    # Indexed paths already have an owner or an archive/child
+                    # exclusion. They must not consume fallback discovery slots
+                    # or make that independent coverage limit look exhausted.
+                    if modified >= now - LOOKBACK_SECONDS and path not in self._indexed_paths:
                         paths.append((modified, path))
             except OSError:
                 continue
+        self._fallback_limit_reached = len(paths) > MAX_THREADS
         return [path for _, path in sorted(paths, key=lambda item: item[0], reverse=True)[:MAX_THREADS]]
 
     def scan(self, now: float, cutoff: float) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -892,10 +902,17 @@ class CodexSource:
             detail = f"Reading local Codex turn events; {unreadable} rollout file(s) could not be read."
         elif database_error:
             detail = "Reading recent Codex rollouts. " + database_error
+        coverage, coverage_detail = _transcript_coverage(
+            observations, ((cursor.consumer.file.metadata.get("id") or cursor.consumer.session_id, cursor)
+                           for cursor in self._cursors.values()),
+            self._thread_limit_reached or self._fallback_limit_reached)
+        if coverage_detail and available:
+            detail += " " + coverage_detail
         return observations, {
             "id": "codex", "name": "Codex", "provider": "codex", "available": available,
             "detail": detail, "observed": len(observations), "updated_at": now,
             "last_seen": self._last_good_scan,
+            **coverage,
         }
 
     def _excluded_ids(self, connection=None, columns=None) -> set[str]:

@@ -1,12 +1,14 @@
 # Current Store engineering status, November 12, 2026
 
-Build 60 is the direct-download baseline for this remediation. It is not a Store candidate. Store preview 63 passed packaging checks and actual first-launch Cancel, empty-board sample entry, Review/Restore/Rename/Snooze persistence, and bundled About/Privacy navigation on the current macOS. Final candidate checks are still in progress; no new distribution package or upload has been validated yet. Earlier build 25/27/29 claims below are historical evidence only.
+Full build 68 is installed and published. Apple processed the profile-free Store build 70 with warning ITMS-90889. TestFlight requires a fresh provisioned build. The reduced Store profile is an engineering variant while full account-feature parity is open. Earlier build 25/27/29 observations below are historical.
 
-The Store edition excludes account chat readers, saved credentials and provider-command readers. Its source now excludes the Claude usage plugin, uses the narrower Claude Code sessions folder, and requires an explicit owner-approved encryption answer before distribution packaging. A preview deliberately leaves an unanswered classification unset.
+The Store edition excludes account chat readers, saved credentials, provider-command readers and the Claude usage plugin. It uses the narrower Claude Code sessions folder. Ordinary distribution packaging requires an explicit owner-approved encryption answer. A preview leaves an unanswered classification unset.
 
 Before submission, verify a new numbered candidate with a provisioning profile through TestFlight on a clean account. Complete first-launch Cancel, Sample Board, source grants, live status transitions, history actions, notifications, login launch, menu-bar monitoring, Quit, persistence, privacy and support workflows. Measure idle writes below 10 KiB/s and normal-use writes below 50 MiB over one hour, both with Codex open and closed. Check for new disk-write resource reports after 24 hours. VoiceOver, keyboard and macOS 13 checks must use the final candidate.
 
-Distribution requires `--uses-non-exempt-encryption yes|no` using the owner's classification, and `--encryption-compliance-code` only if applicable. This is a packaging input, not an automatic legal determination. Submission, availability and trader declarations remain separate owner-controlled steps. Account-chat scope for the Store is still under discussion.
+Ordinary distribution requires `--uses-non-exempt-encryption yes|no` using the owner's classification, and `--encryption-compliance-code` only if applicable. This is a packaging input, not an automatic legal determination. For an explicitly authorized upload before that decision, `--distribution --upload-candidate` omits both encryption keys and records that the package is not ready for submission. It cannot be combined with a classification or compliance code, and all signing, entitlement, exclusion and exact-package checks still apply. The builder never uploads or submits anything.
+
+Apple documents uploaded builds awaiting export-compliance information. The upload-candidate path deliberately leaves that questionnaire unanswered; verify Apple's actual processing status after delivery. It does not establish an exemption, TestFlight readiness or App Review readiness. See [Apple's compliance workflow](https://developer.apple.com/help/app-store-connect/test-a-beta-version/provide-export-compliance-information-for-beta-builds/). Submission, availability and trader declarations remain separate owner-controlled steps. Account-chat scope for the Store is still under discussion.
 
 ## Historical record
 
@@ -145,19 +147,20 @@ ad-hoc signed with an unsigned installer. TestFlight or restricted capabilities
 need their own matching provisioning route; the reviewed sandbox-only route is
 described below.
 
-The following template uses the registered identifier and identities explicitly
-supplied by the owner. Set `AGENT_BOARD_BUILD`, `AGENT_BOARD_TEAM_ID`,
-`AGENT_BOARD_APP_IDENTITY` and `AGENT_BOARD_INSTALLER_IDENTITY` locally. The
-command does not discover, create or export credentials, and does not upload:
+For a TestFlight candidate, use the registered identifier, approved encryption
+answer, matching Mac App Store Connect distribution profile and explicit
+signing identities. Allocate the version and build number from the release
+record before freezing source.
 
 ```sh
-.local/build-venv/bin/python build_store.py --distribution \
+.local/build-venv/bin/python build_store.py --distribution --require-testflight-profile \
   --bundle-id com.spacelydigital.agentboard --version 0.2.5 \
   --build-number "$AGENT_BOARD_BUILD" --team-id "$AGENT_BOARD_TEAM_ID" \
   --app-signing-identity "$AGENT_BOARD_APP_IDENTITY" \
   --installer-signing-identity "$AGENT_BOARD_INSTALLER_IDENTITY" \
-  --profile-free \
-  --support-strategy us-external \
+  --provisioning-profile "$AGENT_BOARD_STORE_PROFILE" \
+  --uses-non-exempt-encryption "$AGENT_BOARD_ENCRYPTION_ANSWER" \
+  --support-strategy hidden \
   --output "build/store-distribution-$AGENT_BOARD_BUILD"
 ```
 
@@ -172,11 +175,11 @@ coverage and a successful build 27 distribution package at the builder level.
 Independent full-package verification passed; complete installed/native and
 overall Apple processing/compliance acceptance remain separate gates.
 
-To use the provisioned path, replace `--profile-free` with
-`--provisioning-profile /path/to/AppStore.provisionprofile`. Both cannot be
-supplied together. TestFlight or future restricted capabilities also need their
-own reviewed configuration; supplying a profile alone does not establish
-TestFlight compatibility. Profile preflight rejects device
+`--require-testflight-profile` requires an explicit Store distribution profile.
+The builder binds CMS validation, embedding and verification to the same input
+bytes. Its receipt records the profile digest, expiry, signer and build intent.
+For upload-only profile-free packaging, omit the TestFlight intent and replace
+the profile option with `--profile-free`. Profile preflight rejects device
 lists, development debugging, Developer ID profiles, expiration, wildcard app
 identifiers, wrong teams, and a main signing certificate absent from the profile.
 The main app's explicit application identifier and team must match. Profile

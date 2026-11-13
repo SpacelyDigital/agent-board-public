@@ -53,6 +53,8 @@ class AppConfiguration:
     store_support_strategy: str = "hidden"
     uses_non_exempt_encryption: bool | None = None
     encryption_compliance_code: str | None = None
+    defer_encryption_classification: bool = False
+    require_testflight_profile: bool = False
 
     def __post_init__(self):
         if (not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,}", self.bundle_id)
@@ -70,6 +72,17 @@ class AppConfiguration:
             raise ValueError("The US external support strategy requires a Store build.")
         if self.uses_non_exempt_encryption is not None and type(self.uses_non_exempt_encryption) is not bool:
             raise ValueError("The encryption answer must be an explicit boolean.")
+        if type(self.defer_encryption_classification) is not bool:
+            raise ValueError("Encryption deferral must be an explicit boolean.")
+        if type(self.require_testflight_profile) is not bool or (
+                self.require_testflight_profile and (
+                    self.signing_channel != "store-distribution" or not self.provisioning_profile)):
+            raise ValueError("TestFlight build intent requires an explicit Store distribution profile.")
+        if self.defer_encryption_classification and (
+                self.signing_channel != "store-distribution"
+                or self.uses_non_exempt_encryption is not None
+                or self.encryption_compliance_code is not None):
+            raise ValueError("An upload candidate can defer only an unanswered Store encryption classification.")
         if self.encryption_compliance_code is not None and (
                 not isinstance(self.encryption_compliance_code, str)
                 or not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", self.encryption_compliance_code)
@@ -87,7 +100,8 @@ class AppConfiguration:
 
     def encryption_metadata(self):
         """Use the owner's explicit classification; never infer a legal answer."""
-        if self.signing_channel == "store-distribution" and self.uses_non_exempt_encryption is None:
+        if (self.signing_channel == "store-distribution" and self.uses_non_exempt_encryption is None
+                and not self.defer_encryption_classification):
             raise ValueError("Store distribution requires an explicit owner-approved encryption answer.")
         if not self.signing_channel.startswith("store-") or self.uses_non_exempt_encryption is None:
             return {}

@@ -12,14 +12,14 @@
     },
     {
       "path": "APP_STORE_PACKAGING.md",
-      "bytes": 18407,
-      "sha256": "f0f6b57583233b9ea10867a472d693475c650a177c4509247f99ad2999053452",
+      "bytes": 19172,
+      "sha256": "511c067dc95084e67fa962a29dd1beae538c652a22d872f3b3ea79d1de1c9213",
       "mode": 420
     },
     {
       "path": "APP_STORE_READINESS.md",
-      "bytes": 20201,
-      "sha256": "57b20ce9ab8ce89daf3fa9b9b8f453cba30425a576fe8591cf5f11590c820b3f",
+      "bytes": 21326,
+      "sha256": "766cd938dfc2781b0dcfb5ebb4584eff483c75137dd5bb9d18b61eb3ab5e7277",
       "mode": 420
     },
     {
@@ -42,8 +42,8 @@
     },
     {
       "path": "DISTRIBUTION.md",
-      "bytes": 8164,
-      "sha256": "0ac6e0b659c072760238bbd32766eef171c6263d4b8b5d74cb11578cb08339f7",
+      "bytes": 8930,
+      "sha256": "407cc0a8296077e9f3f8a10780a2dc6a9852f289fb54cb4158f973eb4d00a7d0",
       "mode": 420
     },
     {
@@ -72,14 +72,14 @@
     },
     {
       "path": "README.md",
-      "bytes": 15853,
-      "sha256": "1e2afec9a2b13d57de06f14b63c83888a9ab70cb4259e572b406440d488a4c49",
+      "bytes": 16281,
+      "sha256": "127463b438daa3ed75ba034bed160f1bdf3cc71d3a79d10653e28a70296217ce",
       "mode": 420
     },
     {
       "path": "REAL_ENVIRONMENT_TEST_PLAN.md",
-      "bytes": 23780,
-      "sha256": "621233474b74d55a6632074cc2983880a654d1bf5ff338deee23863d1210426f",
+      "bytes": 25016,
+      "sha256": "23d7aa100498bc1d5783b6de21ff3e1cfd3de456966d74f3d0b404fe4d07fc27",
       "mode": 420
     },
     {
@@ -108,20 +108,20 @@
     },
     {
       "path": "build_release.py",
-      "bytes": 5574,
-      "sha256": "23d306ef5718e45cd27826358132c100c430f32c3ba0df3ecee4e7e7a352c0cb",
+      "bytes": 7107,
+      "sha256": "0c2ee4df68708a936e07661c122088884212da95b5364543df1b71b429a980f4",
       "mode": 420
     },
     {
       "path": "build_store.py",
-      "bytes": 30780,
-      "sha256": "d9feb6e9cb892ed107d22ef2f487e2f9988a9147278f5a2ebb031638d2e81b9c",
+      "bytes": 37163,
+      "sha256": "b9385ad459905fad7ee16486b76594fa0a8d5650d1491d3a1655c5768c853ba6",
       "mode": 420
     },
     {
       "path": "build_support.py",
-      "bytes": 19178,
-      "sha256": "e6f80563ddefff951bbafad8c6564030dc3e1c3dc8ece21275f4d0b8a6e806b7",
+      "bytes": 20167,
+      "sha256": "2a9c6f0aacda3a5c89130256e6c02ddd0836ed34882ff0433d89ab31ed564a5a",
       "mode": 420
     },
     {
@@ -174,14 +174,14 @@
     },
     {
       "path": "claude_source.py",
-      "bytes": 82232,
-      "sha256": "be84e96063bf98de65c744d053d76d8481a142e9b2a01e2d0a13d1d973c78a67",
+      "bytes": 85786,
+      "sha256": "5d3f621fba09aac5487d1d1ec293896eaabcd9bd3e04bdb6415ecd4e12547c91",
       "mode": 420
     },
     {
       "path": "codex_source.py",
-      "bytes": 50915,
-      "sha256": "327c664e19c90fcddbee7cd1ffbf1042ca80dae89703bf210582e09538efa346",
+      "bytes": 51995,
+      "sha256": "dfdc1a6ac669c948a742b2f1096eb99fd3bbd778df7aa3f70918cb65732734fa",
       "mode": 420
     },
     {
@@ -210,8 +210,8 @@
     },
     {
       "path": "install.py",
-      "bytes": 16419,
-      "sha256": "340f3373dd0bf5089c11f85420b6e3286ab94652aa743a0e2b88fdcbe0bfaebe",
+      "bytes": 17036,
+      "sha256": "d9a4c2f127f42af8f842eead7ff16c41b7d784cf21e52bc53c91e910a8253883",
       "mode": 420
     },
     {
@@ -528,14 +528,14 @@
     },
     {
       "path": "static/about/store.html",
-      "bytes": 2815,
-      "sha256": "986e28f02b8ab46e41ced31cc11b8d2d6709cac2bf23def126ed17ce39900c59",
+      "bytes": 3157,
+      "sha256": "9d2bfcce332b91499d23069ebdb07548e0a5b59a2d4b9830d5002d19521fb321",
       "mode": 420
     },
     {
       "path": "static/app.js",
-      "bytes": 57897,
-      "sha256": "dd7a5c890974105db69c8ffa8de5d30cc08c568b9036823727f5594ae9374ed1",
+      "bytes": 58330,
+      "sha256": "46de6ec275e17ac89497d4ae198f6c9b7d02bb40d1f322582b509611d7673483",
       "mode": 420
     },
     {
@@ -546,8 +546,8 @@
     },
     {
       "path": "static/colors/colors.js",
-      "bytes": 9607,
-      "sha256": "609c8fef90136e0920be8ea5694636e889deec8f0a8ccdede9e5b7c02c2f062b",
+      "bytes": 9705,
+      "sha256": "721e43b3e0b8c54d3521fb3b809ec61d396cf415ad8d3c7249e052bd2439d7e1",
       "mode": 420
     },
     {
@@ -588,8 +588,8 @@
     },
     {
       "path": "static/icons/README.md",
-      "bytes": 923,
-      "sha256": "bed2c45fb03559adc260416e794591bf4c7728d279d6d1e496b8f617e553b7fe",
+      "bytes": 1150,
+      "sha256": "f7133ee59ede2ebde68978be510b8805b57dfac9713b9586b36cac6d26f0a0dc",
       "mode": 420
     },
     {
@@ -684,8 +684,8 @@
     },
     {
       "path": "static/style.css",
-      "bytes": 38363,
-      "sha256": "61574c7224e68899a6518f0368b819319471078c5206fa2d687fb18db006a990",
+      "bytes": 38468,
+      "sha256": "b7d214d8922ceb57ff389b08aa99e8fa33d1436ad977865d22755014b2e3ee5e",
       "mode": 420
     },
     {
@@ -696,14 +696,14 @@
     },
     {
       "path": "store-listing/APP_STORE_METADATA.md",
-      "bytes": 2398,
-      "sha256": "43c440afe4d7ff5e6400a38f2d7e64c1d3adfd6b7590eed1bc0d728b1c6b6e3d",
+      "bytes": 2541,
+      "sha256": "3bef4ebdc169641cef1d5de30bc539c4d0f154c236b04d6a2ab32eb22f86ab8b",
       "mode": 420
     },
     {
       "path": "store-listing/PRIVACY_ANSWERS.md",
-      "bytes": 5162,
-      "sha256": "a61c31c7d7b92e3fa9f250124d1ad92f5b7334e34af159a6dfd5152b2ca06f0d",
+      "bytes": 5233,
+      "sha256": "c94fcd9358a5f5c99abcab2cea0ec1434241695e10a95edfddbe5766952c0a14",
       "mode": 420
     },
     {
@@ -714,8 +714,8 @@
     },
     {
       "path": "store-listing/REVIEW_NOTES.md",
-      "bytes": 3008,
-      "sha256": "85bf586d74c68410fb681243d807f52216489ddad4bca3d3536271ea7e99107e",
+      "bytes": 3171,
+      "sha256": "a89575e02c7d23015371578422415b26acf713b2c26466cfa07f0e1cc7a4351b",
       "mode": 420
     },
     {
@@ -732,8 +732,8 @@
     },
     {
       "path": "store-listing/site/privacy.html",
-      "bytes": 5601,
-      "sha256": "0a1508641e17b495d7921235704de03a07ea15eea056ae75da04dec63bd0464b",
+      "bytes": 5746,
+      "sha256": "ede3c1722c478f47e0a777bf9c3aee8b28324a6d7e3f59c84b8b0c1821378e9d",
       "mode": 420
     },
     {
@@ -744,8 +744,8 @@
     },
     {
       "path": "store-listing/site/support.html",
-      "bytes": 4351,
-      "sha256": "061254ceed2947f7e6ee64fecf2a0844e4331646c4406935267934aaffb4104b",
+      "bytes": 4549,
+      "sha256": "34ea55b4c9ee4e4a0fbe122f9c1bafcf762d97b0d2649907c08ed6eead16c86b",
       "mode": 420
     },
     {
@@ -1002,8 +1002,8 @@
     },
     {
       "path": "tests/test_claude.py",
-      "bytes": 61029,
-      "sha256": "e4aa392e3e26be6132d7dc25521703fae0681ce75fd0407d1b05a16abafa5473",
+      "bytes": 61776,
+      "sha256": "575f414eedcec08863215a03ac4d6e5b6e31b42a4336f8d3dcd1cf6f3bdb89e4",
       "mode": 420
     },
     {
@@ -1038,8 +1038,8 @@
     },
     {
       "path": "tests/test_codex.py",
-      "bytes": 25453,
-      "sha256": "c47857e1c66df9d7a1bac05601000acce97b299c610820b910a29f6d7708c22b",
+      "bytes": 32853,
+      "sha256": "2d84fcfe45fa39031cc63f9cfeb43d7b8b33647922ac317a0cd486ca27aeec0b",
       "mode": 420
     },
     {
@@ -1062,8 +1062,8 @@
     },
     {
       "path": "tests/test_collector_recovery.py",
-      "bytes": 10722,
-      "sha256": "3b9ea9946326c52c348dc405c5f9d21251fd31f84fd48d3255048764889d8ab0",
+      "bytes": 12590,
+      "sha256": "de2c9966029981b32973c04faf295ce44ffd80547de8779fc272bd9ddb258976",
       "mode": 420
     },
     {
@@ -1158,20 +1158,20 @@
     },
     {
       "path": "tests/test_store_branding.py",
-      "bytes": 8247,
-      "sha256": "2c087e0a7880241d3ccc9a784819761a4176bb6c3273de788b4b42d9628da1ee",
+      "bytes": 12446,
+      "sha256": "ed73f55ecce458a5446d18bca540be252fc817a74ba809386d5a84d9d499fc5f",
       "mode": 420
     },
     {
       "path": "tests/test_store_packaging.py",
-      "bytes": 39709,
-      "sha256": "13e106f47bc498216104560799b0d840a3d57b58cbdd45521379c1cea77acb86",
+      "bytes": 75269,
+      "sha256": "b054f9855f86f9c02d03ff1d5bf78085e3e0ec2a5f07eb5862b013b0b1ca2ff6",
       "mode": 420
     },
     {
       "path": "tests/test_store_privacy.py",
-      "bytes": 9381,
-      "sha256": "fe3b855e53f8de013a7574da8dfc8601a7895b66ea9af3749e5b8dada4ec0f2a",
+      "bytes": 10569,
+      "sha256": "2f69588c1afd9dbe0b284c16db07781cc39e243ff3e9166c2b0f306e7c1dc97c",
       "mode": 420
     },
     {

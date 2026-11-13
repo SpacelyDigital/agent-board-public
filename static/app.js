@@ -1,6 +1,9 @@
 "use strict";
 
 (() => {
+  if (document.documentElement.dataset.providerMarks === "off") {
+    document.querySelectorAll(".usage-logo").forEach(mark => mark.remove());
+  }
   // The native app injects this in its own loopback origin. Keep it out of URLs,
   // persistent web storage, and the global object after initialization.
   const accessToken = typeof window.__agentBoardAccessToken === "string" ? window.__agentBoardAccessToken : null;
@@ -384,12 +387,15 @@
     const fragment = document.createDocumentFragment();
     for (const source of sources) {
       const available = connected && source.available;
-      const item = make("span", `source ${available ? "available" : "unavailable"}`);
+      const limited = available && source.coverage_limited === true;
+      const item = make("span", `source ${available ? "available" : "unavailable"}${limited ? " limited" : ""}`);
       item.append(make("span", "source-dot"), make("span", "source-name", source.name || source.id));
-      const sourceStatus = source.waiting_for_chat === true ? "waiting for a chat" : "connected";
+      const sourceStatus = limited ? "limited" : source.waiting_for_chat === true ? "waiting for a chat" : "connected";
       const health = !connected ? "unconfirmed" : source.sample === true ? "sample" : source.available ? sourceStatus : "unavailable";
       item.append(make("span", "source-health", health));
       item.title = source.detail || health;
+      item.setAttribute("role", "group");
+      item.setAttribute("aria-label", `${source.name || source.id}: ${health}${source.detail ? `. ${source.detail}` : ""}`);
       fragment.append(item);
     }
     elements.sources.replaceChildren(fragment);

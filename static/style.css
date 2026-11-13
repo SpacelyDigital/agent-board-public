@@ -75,8 +75,8 @@ main { flex: 1; }
 .usage-provider + .usage-provider { border-left: 1px solid var(--line); padding-left: 32px; }
 .usage-provider-heading { display: flex; align-items: center; gap: 9px; margin: 0; color: var(--strong, var(--ink)); font-size: 13px; font-weight: 600; line-height: 22px; }
 .usage-logo { display: inline-block; flex: 0 0 22px; width: 22px; height: 22px; background: currentColor; -webkit-mask: var(--usage-logo) center / contain no-repeat; mask: var(--usage-logo) center / contain no-repeat; }
-.usage-logo-claude { --usage-logo: url("/icons/claude.svg"); }
-.usage-logo-codex { --usage-logo: url("/icons/codex.svg"); }
+html:not([data-provider-marks="off"]) .usage-logo-claude { --usage-logo: url("/icons/claude.svg"); }
+html:not([data-provider-marks="off"]) .usage-logo-codex { --usage-logo: url("/icons/codex.svg"); }
 html[data-provider-marks="off"] .usage-logo { display: none !important; -webkit-mask: none !important; mask: none !important; }
 .usage-windows { display: contents; }
 .usage-window { display: grid; grid-template-columns: minmax(44px, .6fr) minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; align-content: start; gap: 4px 12px; min-width: 0; }
@@ -166,7 +166,7 @@ html[data-provider-marks="off"] .usage-logo { display: none !important; -webkit-
 .source { display: flex; align-items: baseline; gap: 6px; }
 .source-dot { width: 5px; height: 5px; align-self: center; }
 .source.available .source-dot { background: var(--green); }
-.source.unavailable .source-dot { background: var(--amber); }
+.source.unavailable .source-dot, .source.limited .source-dot { background: var(--amber); }
 .source-name { color: #62695f; }
 .last-sync { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
 .rename-dialog { width: min(440px, calc(100% - 40px)); padding: 24px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); }

@@ -1,5 +1,19 @@
 # Mac distribution
 
+Full build 68 is the current verified Mac and GitHub release. Store build 70 is
+a processed engineering upload with a smaller feature set. For the next full
+release, allocate one version and build number, freeze source once, and bind the
+install, GitHub artifacts and remote deployments to its release receipt. Verify
+each target after deployment before recording parity. TestFlight has its own
+Apple signing and delivery evidence and must meet the same feature acceptance.
+
+The direct download builder requires `--version` and `--build-number`. It checks
+both the app and collector identity before packaging and writes to build-specific
+paths. A local preview or a different feature set is recorded separately from
+the full release.
+
+## Historical Store packaging
+
 The preserved Store engineering candidate is **0.2.5 build 25** with explicit
 US-only optional support. It is an ad-hoc signed Apple-silicon app and unsigned
 installer, not a final Store package. Submission readiness is false. The owner

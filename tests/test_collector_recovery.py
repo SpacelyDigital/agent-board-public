@@ -64,6 +64,33 @@ class CollectorRecoveryTests(unittest.TestCase):
     def health(self):
         return {row["id"]: row["available"] for row in self.monitor.snapshot()["sources"]}
 
+    def test_limited_history_health_does_not_disconnect_verified_sibling_or_realert_review(self):
+        checking = dict(self.local, history_checking=True, history_verified=False,
+                        status="disconnected", detail="This history keeps changing before verification finishes.")
+        sibling = dict(self.local, id="verified-sibling", event_id="sibling-complete")
+        health = {"id": "codex", "name": "Codex", "available": True,
+                  "coverage_limited": True, "history_checking": 1, "history_changing": 1,
+                  "history_limit_reached": False, "history_oldest_check_seconds": 12,
+                  "detail": "A local history remains unconfirmed."}
+        source = self.monitor.sources[0]
+        with patch.object(source, "scan", return_value=([checking, sibling], health)):
+            self.monitor.scan()
+        snapshot = self.monitor.snapshot()
+        projected = next(item for item in snapshot["sources"] if item["id"] == "codex")
+        self.assertTrue(projected["available"])
+        self.assertTrue(projected["coverage_limited"])
+        items = {item["id"]: item for group in ("sessions", "history", "background") for item in snapshot[group]}
+        self.assertTrue(items["local-fixture"]["history_checking"])
+        self.assertFalse(items["local-fixture"]["notification_eligible"])
+        self.assertEqual(items["local-fixture"]["reviewed_event"], self.saved["event_id"])
+        self.assertEqual(items["verified-sibling"]["status"], "ready")
+        self.assertFalse(items["verified-sibling"]["source_unavailable"])
+        self.monitor.scan()
+        recovered = self.monitor.store.get(self.saved["key"])
+        self.assertFalse(recovered["history_checking"])
+        self.assertEqual(recovered["reviewed_event"], self.saved["event_id"])
+        self.assertFalse(recovered["notification_eligible"])
+
     def test_local_commit_failure_has_no_database_fallback_and_recovers_review(self):
         last_scan = self.monitor.last_scan
         with patch.object(self.monitor.store, "apply", side_effect=sqlite3.OperationalError("PRIVATE disk path")), \

@@ -568,6 +568,33 @@ class _TranscriptBudget:
         return self.remaining > 0 and time.monotonic() < self.deadline
 
 
+def _transcript_coverage(observations, cursors, limit_reached=False):
+    """Describe bounded reader coverage without renewing any lifecycle evidence."""
+    checking = {item["id"] for item in observations
+                if item.get("history_checking") is True and not item.get("background_reason")}
+    pending = [(identifier, cursor) for identifier, cursor in cursors
+               if isinstance(identifier, str) and identifier in checking]
+    changing = len({identifier for identifier, cursor in pending if cursor.verification_restarts >= 2})
+    now = time.monotonic()
+    oldest = max((max(0.0, now - cursor.checking_since) for _, cursor in pending
+                  if cursor.checking_since is not None), default=0.0)
+    coverage = {"coverage_limited": bool(checking or limit_reached),
+                "history_checking": len(checking), "history_changing": changing,
+                "history_limit_reached": bool(limit_reached),
+                "history_oldest_check_seconds": int(oldest)}
+    details = []
+    if limit_reached:
+        details.append("The history scan limit was reached, so additional histories may not be covered.")
+    if changing:
+        noun, verb = ("history", "keeps") if changing == 1 else ("histories", "keep")
+        details.append(f"{changing} {noun} {verb} changing before verification finishes. "
+                       "Their status remains unconfirmed until a complete check succeeds.")
+    elif checking:
+        noun = "history" if len(checking) == 1 else "histories"
+        details.append(f"Checking {len(checking)} local {noun}. Their status is unconfirmed.")
+    return coverage, " ".join(details)
+
+
 _BLOCK_FIELDS = {"type": True, "text": "text", "name": True, "id": True,
                  "tool_use_id": True, "is_error": True,
                  "input": {"run_in_background": True,
@@ -848,6 +875,8 @@ class _TranscriptCursor:
         self.file_identity = None
         self.checkpoint = None
         self.scan_restarts = 0
+        self.verification_restarts = 0
+        self.checking_since = None
         self.revision = self.valid_revision(revision)
         self.anchor_prefix = None
 
@@ -943,6 +972,20 @@ class _TranscriptCursor:
                       if self.provider == "Claude" else
                       self.provider + "'s turn lifecycle could not be verified from the available history.")
         result["history_checking"] = checking
+        if checking:
+            if self.checking_since is None:
+                self.checking_since = time.monotonic()
+            if detail != "Checking local chat history before confirming its status.":
+                # A known read/schema failure has its own explanation. Previous
+                # churn must not misdescribe a now-stable unsupported history.
+                self.verification_restarts = 0
+            if (self.verification_restarts >= 2
+                    and detail == "Checking local chat history before confirming its status."):
+                detail = ("This history keeps changing before verification finishes. "
+                          "Its status remains unconfirmed until a complete check succeeds.")
+        else:
+            self.checking_since = None
+            self.verification_restarts = 0
         if not checking and self.revision:
             result["history_revision"] = dict(self.revision)
         if checking:
@@ -1025,6 +1068,10 @@ class _TranscriptCursor:
                 if self.phase == "idle" and signature == self.indexed_signature:
                     return self.snapshot(False)
                 if self.expected != signature:
+                    # Count lost verification progress, not ordinary warm
+                    # appends or polls in which another history used the budget.
+                    if self.phase != "idle" and self.expected is not None and self.offset:
+                        self.verification_restarts = min(1_000_000, self.verification_restarts + 1)
                     same_file = signature[:2] == self.file_identity
                     if self.phase == "verify" and same_file and signature[2] >= self.checkpoint[1]:
                         self.verify(signature, self.checkpoint)
@@ -1047,6 +1094,7 @@ class _TranscriptCursor:
                     if self.offset == target:
                         if (self.signature(os.fstat(stream.fileno())) != signature
                                 or self.signature(path.lstat()) != signature):
+                            self.verification_restarts = min(1_000_000, self.verification_restarts + 1)
                             self.expected = None
                             break
                         if self.phase == "verify":
@@ -1444,6 +1492,8 @@ class ClaudeSource:
                                  if session_id in eligible_ids and session_id not in ambiguous_ids),
                                 key=lambda pair: (pair[0] in active_ids, transcript_mtimes.get(pair[0], 0), pair[0]), reverse=True)
         resident_paths = eligible_paths[:TRANSCRIPT_MAX_FILES]
+        history_limit_reached = any(identifier not in self.background_reasons
+                                    for identifier, _ in eligible_paths[TRANSCRIPT_MAX_FILES:])
         for session_id, path in eligible_paths[TRANSCRIPT_MAX_FILES:]:
             states[session_id] = {"id": session_id, "status": "disconnected", "updated_at": 0,
                                   "history_checking": True,
@@ -1600,4 +1650,10 @@ class ClaudeSource:
                              "Reading local session metadata." if self.root.is_dir() else
                              "No local Claude Code data was found."),
                   "last_seen": last_seen}
+        coverage, detail = _transcript_coverage(observations,
+                                               ((cursor.consumer.session_id, cursor) for cursor in self._tails.values()),
+                                               history_limit_reached)
+        source.update(coverage)
+        if detail and source["available"]:
+            source["detail"] += " " + detail
         return observations, source

@@ -83,8 +83,15 @@ def copy_license_notices(resources):
             raise SystemExit("The bundled-runtime license notices are invalid.")
 
 
-def build_app(signing_identity=None, *, sandboxed=False, build_root=None, configuration=None):
+def build_app(signing_identity=None, *, sandboxed=False, build_root=None, configuration=None,
+              provisioning_profile_bytes=None):
     encryption_metadata = configuration.encryption_metadata() if configuration else {}
+    if configuration and configuration.provisioning_profile:
+        if (type(provisioning_profile_bytes) is not bytes
+                or not 0 < len(provisioning_profile_bytes) <= 2 * 1024 * 1024):
+            raise ValueError("A provisioned build requires the exact validated profile snapshot.")
+    elif provisioning_profile_bytes is not None:
+        raise ValueError("A profile snapshot requires an explicitly provisioned build.")
     if configuration and configuration.signing_channel.startswith("store-") and not sandboxed:
         raise ValueError("Store builds must enable App Sandbox.")
     if configuration and configuration.signing_channel == "store-distribution" and not configuration.provisioning_profile:
@@ -151,7 +158,9 @@ def build_app(signing_identity=None, *, sandboxed=False, build_root=None, config
             info.update(encryption_metadata)
             info.update(xcode_build_metadata())
     if configuration and configuration.provisioning_profile:
-        shutil.copy2(configuration.provisioning_profile, contents / "embedded.provisionprofile")
+        # The caller validates this private snapshot before building. Never
+        # reopen the external profile path after that validation.
+        (contents / "embedded.provisionprofile").write_bytes(provisioning_profile_bytes)
     (contents / "Info.plist").write_bytes(plistlib.dumps(info))
     verified = validate_bundle(app, info["LSMinimumSystemVersion"])
     (output / "native-compatibility.json").write_text(json.dumps(verified, indent=2) + "\n")

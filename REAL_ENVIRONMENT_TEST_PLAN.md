@@ -339,3 +339,23 @@ upload, public release or tester outreach is performed by this plan.
 Use process-level `proc_pid_rusage` disk-write counters for the actual final collector. Run a disposable 200-session idle fixture for 120 seconds and require less than 10 KiB/s after warmup. Confirm repeated unchanged observations do not add SQLite changes or WAL bytes. In the sandbox, confirm a cleanly closed Codex index is loaded into a verified in-memory snapshot once and reused across 30 unchanged scans without snapshot disk writes, with invalidation on database or WAL changes.
 
 Measure one hour of normal use below 50 MiB written with Codex open, then repeat with Codex closed. Record process identity, uptime, elapsed time, read/write deltas and source-health failures. Check macOS DiagnosticReports after 24 hours for new collector disk-write reports. A short fixture pass does not complete these live gates. Preserve the previous installed app and a consistent board backup before replacement.
+
+## TestFlight and release parity
+
+Record the version, build, bundle ID, feature set, source manifest hash and
+artifact digest before testing. Record Apple processing, testing availability,
+installation, workflows, draft selection, export compliance, review and release
+as separate observations. Keep a receipt for each Mac or remote instance. For
+direct installs, verify the signed executable hashes against the GitHub package
+receipt. For TestFlight, verify the Apple-delivered build identity and feature
+set, accounting for Apple's distribution signature.
+
+On clean accounts on the current macOS and macOS 13, exercise setup cancel and
+relaunch, sample and live separation, all three read-only grants, revoke and
+regrant, one genuine completion per supported source, exact conversation Open,
+Review/Restore/Rename/Snooze and restart persistence. Check notifications with
+permission denied and granted, menu-bar operation after window close, a real
+login cycle, helper failure and Quit, keyboard focus, spoken VoiceOver, readable
+text and offline privacy. Test the full account features before declaring parity.
+Record observed results for the Apple-delivered artifact independently of preview
+checks and the disposable disk fixture.

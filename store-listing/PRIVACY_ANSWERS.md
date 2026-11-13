@@ -1,13 +1,14 @@
 # Proposed App Store privacy answers
 
-Scope: the sandboxed Store build with local source readers and optional local
-quota exports. These answers must be checked against the final submitted binary.
+Scope: the sandboxed Store build with local source readers and Codex usage
+readings from verified local session records. It includes no Claude usage plugin
+or exporter. These answers must be checked against the final submitted binary.
 
 | Question | Proposed answer | Basis and condition |
 | --- | --- | --- |
 | Do you or your third-party partners collect data from this app? | No | App code processes and stores the board only on the recipient's Mac. No developer endpoint, analytics SDK, crash uploader or external UI resource is included. |
 | Is data used to track users? | No | No advertising identifiers, tracking SDKs or tracking domains are used. |
-| Are chats, usage statistics or diagnostics sent to Spacely Digital? | No | Local readers and the quota exporter have no developer reporting destination. |
+| Are chats, usage statistics or diagnostics sent to Spacely Digital? | No | Local session and usage readers have no developer reporting destination. |
 | Does Agent Board create an account? | No | Provider accounts belong to the provider apps; Agent Board has no sign-in or registration. |
 
 Apple defines data processed only on the device as outside its privacy-label

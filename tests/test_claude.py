@@ -484,7 +484,7 @@ assert sys.modules['process_reader'] is None
             self.assertEqual(set(self.source._tails), set(old_paths))
             self.write(self.prompt(), self.assistant(timestamp=self.now))
             os.utime(self.path, (self.now, self.now))
-            items, _ = self.source.scan(self.now, self.now - 3600)
+            items, health = self.source.scan(self.now, self.now - 3600)
             new = next(item for item in items if item["id"] == "session-1")
             self.assertFalse(new["history_checking"])
             self.assertEqual(new["status"], "ready")
@@ -492,6 +492,8 @@ assert sys.modules['process_reader'] is None
             self.assertEqual(len(self.source._tails), 2)
             excluded = [item for item in items if item["id"].startswith("old-") and item["history_checking"]]
             self.assertEqual(len(excluded), 1)
+            self.assertTrue(health["coverage_limited"])
+            self.assertTrue(health["history_limit_reached"])
 
     def test_sixteen_incomplete_maximum_records_cannot_starve_a_healthy_chat(self):
         for index in range(16):
@@ -526,20 +528,30 @@ assert sys.modules['process_reader'] is None
         self.source.tracked_ids = set(identifiers)
         with patch("claude_source.TRANSCRIPT_POLL_BYTES", 1024 * 1024):
             for _ in range(12):
-                rows, _ = self.source.scan(self.now, self.now - 3600)
+                rows, health = self.source.scan(self.now, self.now - 3600)
                 self.assertTrue(all(row["history_checking"] and row["status"] != "ready" for row in rows))
+                self.assertTrue(health["available"])
+                self.assertTrue(health["coverage_limited"])
+                self.assertEqual(health["history_checking"], 5)
                 for identifier, path in zip(identifiers, paths):
                     with path.open("a") as stream:
                         stream.write(json.dumps({"type": "progress", "sessionId": identifier,
                                                  "timestamp": self.now, "content": "New disposable progress"}) + "\n")
             self.assertTrue(all(cursor.scan_restarts == 1 for cursor in self.source._tails.values()),
                             "Appending must verify and resume, not restart parsing from byte zero")
+            self.assertGreater(health["history_changing"], 0)
+            self.assertIn("keep changing", health["detail"])
+            self.assertNotIn("growing-", json.dumps(health))
+            self.assertNotIn(str(self.root), json.dumps(health))
             for _ in range(100):
-                rows, _ = self.source.scan(self.now, self.now - 3600)
+                rows, health = self.source.scan(self.now, self.now - 3600)
                 if len(rows) == 5 and all(not row["history_checking"] for row in rows):
                     break
             self.assertEqual({row["status"] for row in rows}, {"ready"})
             self.assertTrue(all(not row["history_checking"] for row in rows))
+            self.assertFalse(health["coverage_limited"])
+            self.assertEqual(health["history_changing"], 0)
+            self.assertEqual(health["history_oldest_check_seconds"], 0)
             self.assertTrue(all(cursor.scan_restarts == 1 for cursor in self.source._tails.values()))
 
     def test_record_buffer_identity_and_file_limits_preserve_uncertainty(self):

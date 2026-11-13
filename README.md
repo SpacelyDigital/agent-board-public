@@ -181,12 +181,15 @@ Close the window to keep monitoring from the menu bar. Quit stops the owned
 collector. Setup and Permissions controls source folders, notifications and
 opening at login. Retry Monitoring remains available after a collector failure.
 
-Claude’s five-hour and weekly readings share one panel; Codex has a weekly
-panel. Store builds use local cached observations and show age, stale and
-unavailable states. The optional Claude plugin exports quota windows and reset
-times locally. Real weekly readings were observed on earlier builds; the tested
-account did not expose a five-hour window. Cached values do not confirm a fresh
-allowance or the active account. Agent Board never sends a prompt to refresh them.
+The direct edition can read account usage through its optional provider
+connections. The Store edition shows Codex weekly usage only when verified local
+session records contain it. It has no Claude account usage or Claude quota
+plugin. Local readings show their age and can be absent or stale; they do not
+confirm a fresh allowance or the active account. Agent Board never sends a prompt
+to refresh usage. Forget Source Folders stops local monitoring and removes the
+saved grants while retaining board history, names and review choices. To remove
+stored board data, choose Open Local Data Folder, quit the app, then remove that
+folder. Provider chats and macOS preferences remain separate.
 
 ## Privacy and optional support
 
@@ -194,7 +197,7 @@ Agent Board has no developer-operated reporting endpoint, analytics SDK,
 advertising tracker or crash uploader. It does not automatically send chats,
 account details, usage statistics or diagnostics to Spacely Digital. Board data,
 source-folder bookmarks, preferences and logs stay on the recipient’s Mac.
-The Store package excludes the prototype’s saved-credential, cloud-project and
+The Store package excludes the direct edition’s saved-credential, cloud-project and
 provider-command helpers. It reads selected local folders and authenticated
 loopback traffic. The bounded Codex index fallback uses a verified in-memory
 snapshot without temporary disk writes; see [PRIVACY.md](PRIVACY.md).
@@ -236,13 +239,15 @@ from the installed app. [APP_STORE_PACKAGING.md](APP_STORE_PACKAGING.md) describ
 explicit local packaging inputs; the build tool does not install or upload.
 [DISTRIBUTION.md](DISTRIBUTION.md) and [APP_STORE_READINESS.md](APP_STORE_READINESS.md)
 separate source, fixture, native and actual-provider evidence. All prior private
-checkpoints remain preserved. Delivered build 27 is attached to version 0.2.5
-with Missing Compliance; no App Review or release result is established.
+checkpoints remain preserved. The November 6 record shows build 27 attached to
+version 0.2.5 with Missing Compliance. Later build and upload receipts establish
+their own status; uploading alone does not submit the app for review or release it.
 
 Agent Board is independent of OpenAI and Anthropic. Their names belong to their
 owners; provider compatibility and distribution authorization remain release
-review items. The direct prototype’s authenticated-provider path is separate
-and is not cleared for distribution.
+review items. Optional account readers belong to the direct-download edition
+and are excluded from the Store edition. Engineering validation and Apple
+notarization do not establish provider endorsement or a supported public API.
 
 ## License status
 

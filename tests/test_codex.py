@@ -1,5 +1,6 @@
 """Lifecycle and read-only regression checks using disposable Codex fixtures."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -434,6 +435,134 @@ class CodexSourceTests(unittest.TestCase):
                 self.assertLessEqual(sum(used), 8192)
                 self.assertEqual(len(set(budgets)), 1)
         self.assertTrue(all(self.source._cursors[path].offset > 0 for path in old))
+
+    def test_concurrent_over_budget_histories_report_limited_then_recover_exact_replies(self):
+        paths = [self.thread(f"private-fixture-{index}") for index in range(2)]
+        for index, path in enumerate(paths):
+            self.event(path, "task_started", turn=f"fixture-turn-{index}")
+            self.write(path, {"type": "trace", "payload": {"ignored": "x" * 24000}})
+        # Exercise both already verified and cold startup cursors.
+        self.scan()
+        for cold in (False, True):
+            with self.subTest(cold=cold):
+                source = CodexSource(self.root) if cold else self.source
+                self.addCleanup(source.close)
+                clock = [100.0]
+                with patch("claude_source.TRANSCRIPT_POLL_BYTES", 8192), \
+                        patch("claude_source.time.monotonic", side_effect=lambda: clock[0]):
+                    for poll in range(12):
+                        clock[0] += 2
+                        for path in paths:
+                            self.write(path, {"type": "trace", "payload": {"ignored": "more progress"}})
+                        rows, health = source.scan(self.now + poll * 2, self.cutoff)
+                        self.assertTrue(health["available"])
+                        self.assertTrue(health["coverage_limited"])
+                        self.assertEqual(health["history_checking"], 2)
+                        self.assertTrue(all(row["status"] == "disconnected" and row["history_checking"]
+                                            and "history_revision" not in row for row in rows))
+                    self.assertEqual(health["history_changing"], 2)
+                    self.assertGreaterEqual(health["history_oldest_check_seconds"], 20)
+                    self.assertIn("keep changing", health["detail"])
+                    self.assertNotIn("private-fixture", json.dumps(health))
+                    self.assertNotIn(str(self.root), json.dumps(health))
+                    for index, path in enumerate(paths):
+                        self.event(path, "task_complete", turn=f"fixture-turn-{index}")
+                    before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
+                    for recovery_poll in range(16):
+                        clock[0] += 2
+                        rows, health = source.scan(self.now + 30 + recovery_poll * 2, self.cutoff)
+                        if not health["coverage_limited"]:
+                            break
+                    self.assertFalse(health["coverage_limited"])
+                    self.assertEqual(health["history_changing"], 0)
+                    self.assertEqual(health["history_oldest_check_seconds"], 0)
+                    self.assertEqual({row["status"] for row in rows}, {"ready"})
+                    self.assertEqual(len({row["event_id"] for row in rows}), 2)
+                    self.assertEqual({row["history_revision"]["sha256"] for row in rows}, set(before))
+                    self.assertEqual(before, [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths])
+                    self.assertEqual({row["id"]: row["event_id"] for row in rows},
+                                     {row["id"]: row["event_id"] for row in source.scan(self.now + 62, self.cutoff)[0]})
+
+    def test_coverage_reports_index_and_discovery_caps_without_claiming_missing_states(self):
+        for index in range(3):
+            path = self.thread(f"limited-{index}")
+            self.event(path, "task_complete")
+        with patch("codex_source.MAX_THREADS", 2):
+            rows, health = self.source.scan(self.now, self.cutoff)
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(health["history_limit_reached"])
+            self.assertTrue(health["coverage_limited"])
+            self.assertEqual(health["history_checking"], 0)
+            self.assertIn("additional histories may not be covered", health["detail"])
+            self.source.close()
+            self.db.unlink()
+            fallback = CodexSource(self.root)
+            self.addCleanup(fallback.close)
+            rows, health = fallback.scan(self.now, self.cutoff)
+            self.assertEqual(len(rows), 2)
+            self.assertTrue(health["history_limit_reached"])
+        rows, health = fallback.scan(self.now, self.cutoff)
+        self.assertEqual(len(rows), 3)
+        self.assertFalse(health["coverage_limited"])
+
+    def test_empty_readable_source_has_no_invented_history_limit(self):
+        rows, health = self.source.scan(self.now, self.cutoff)
+        self.assertEqual(rows, [])
+        self.assertTrue(health["available"])
+        self.assertFalse(health["coverage_limited"])
+        self.assertEqual(health["history_checking"], 0)
+
+    def test_known_index_exclusions_do_not_consume_fallback_discovery_capacity(self):
+        for index in range(3):
+            path = self.thread(f"archived-{index}", archived=1)
+            self.event(path, "task_complete")
+            os.utime(path, (self.now, self.now))
+        pending = self.thread("not-indexed-yet")
+        self.event(pending, "task_complete")
+        os.utime(pending, (self.now - 1, self.now - 1))
+        with sqlite3.connect(self.db) as connection:
+            connection.execute("DELETE FROM threads WHERE id = 'not-indexed-yet'")
+        with patch("codex_source.MAX_THREADS", 2):
+            rows, health = self.source.scan(self.now, self.cutoff)
+        self.assertEqual([row["id"] for row in rows], ["not-indexed-yet"])
+        self.assertEqual(rows[0]["status"], "ready")
+        self.assertFalse(health["history_limit_reached"])
+        self.assertFalse(health["coverage_limited"])
+
+    @patch("claude_source.TRANSCRIPT_POLL_SECONDS", 10)
+    def test_changed_unindexed_history_diagnostics_use_verified_identity_and_clear_after_corruption(self):
+        path = self.thread("fallback-fixture")
+        self.event(path, "task_started")
+        self.write(path, {"type": "trace", "payload": {"ignored": "x" * 24000}})
+        self.source.close()
+        self.db.unlink()
+        source = CodexSource(self.root)
+        self.addCleanup(source.close)
+        source.scan(self.now, self.cutoff)
+        with patch("claude_source.TRANSCRIPT_POLL_BYTES", 8192):
+            for _ in range(5):
+                self.write(path, {"type": "trace", "payload": {"ignored": "progress"}})
+                _, health = source.scan(self.now, self.cutoff)
+            self.assertEqual(health["history_changing"], 1)
+            original = path.read_bytes()
+            with path.open("ab") as stream:
+                stream.write(b"invalid-json\n")
+            for _ in range(12):
+                rows, health = source.scan(self.now, self.cutoff)
+                if source._cursors[path].phase == "idle":
+                    break
+            self.assertEqual(health["history_changing"], 0)
+            self.assertTrue(health["coverage_limited"])
+            self.assertEqual(rows[0]["status"], "disconnected")
+            self.assertIn("could not be verified", rows[0]["detail"])
+            path.write_bytes(original)
+            self.event(path, "task_complete")
+            for _ in range(12):
+                rows, health = source.scan(self.now, self.cutoff)
+                if not health["coverage_limited"]:
+                    break
+            self.assertFalse(health["coverage_limited"])
+            self.assertEqual(rows[0]["status"], "ready")
 
     @patch("claude_source.TRANSCRIPT_POLL_BYTES", 8192)
     def test_slow_scheduling_metadata_does_not_exhaust_history_budget(self):

@@ -3,6 +3,8 @@
 import http.client
 from pathlib import Path
 import plistlib
+import shutil
+import subprocess
 import tempfile
 import threading
 from types import SimpleNamespace
@@ -150,6 +152,87 @@ class RuntimeBuildLabelTests(unittest.TestCase):
                 for raw in (b"not a plist", b"x" * 65537):
                     info.write_bytes(raw)
                     self.assertEqual(_runtime_build_label(), "Version unavailable")
+
+
+class StorePresentationTests(unittest.TestCase):
+    def run_node(self, script, *paths):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is not installed")
+        result = subprocess.run([node, "-e", script, *map(str, paths)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_actual_board_and_theme_renderers_keep_store_provider_headings_text_only(self):
+        self.run_node(r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+const board = fs.readFileSync(process.argv[1], 'utf8');
+const boundary = board.indexOf('  // The native app injects');
+assert.ok(boundary > 0);
+for (const mode of ['off', undefined]) {
+  let removed = 0, queried = false;
+  const document = {documentElement:{dataset:{providerMarks:mode}}, querySelectorAll(selector) {
+    assert.equal(selector, '.usage-logo'); queried = true;
+    return [{remove(){removed++;}}, {remove(){removed++;}}];
+  }};
+  vm.runInNewContext(board.slice(0, boundary) + '})();', {document});
+  assert.equal(removed, mode === 'off' ? 2 : 0);
+  assert.equal(queried, mode === 'off');
+}
+const gallery = fs.readFileSync(process.argv[2], 'utf8');
+const begin = gallery.indexOf('  function providerUsage('), end = gallery.indexOf('\n  preview.innerHTML', begin);
+assert.ok(begin > 0 && end > begin);
+for (const mode of ['off', undefined]) {
+  const context = {document:{documentElement:{dataset:{providerMarks:mode}}},
+    usage:[{provider:'Claude',remaining:40,reset:'1d',credits:'sample'},
+           {provider:'Codex',remaining:50,reset:'2d',credits:'sample'}]};
+  vm.createContext(context); vm.runInContext(gallery.slice(begin, end), context);
+  for (const provider of ['Claude', 'Codex']) {
+    const html = context.providerUsage(provider);
+    assert.ok(html.includes('>' + provider + '</h2>'));
+    assert.equal(html.includes('class="usage-logo'), mode !== 'off');
+  }
+}
+""", ROOT / "static/app.js", ROOT / "static/colors/colors.js")
+        css = (ROOT / "static/style.css").read_text()
+        for provider in ICONS:
+            self.assertIn(f'html:not([data-provider-marks="off"]) .usage-logo-{provider}', css)
+
+    def test_actual_source_footer_distinguishes_limited_unavailable_and_disconnected(self):
+        self.run_node(r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const begin = source.indexOf('  function renderSources() {'), end = source.indexOf('  function resetCountdown(', begin);
+assert.ok(begin > 0 && end > begin);
+function node(tag, className, text) {
+  return {tag,className,text,children:[],attributes:{},append(...children){this.children.push(...children);},
+    setAttribute(name,value){this.attributes[name]=value;}};
+}
+let rows;
+const context = {state:{sources:[]},connected:true,make:node,
+  document:{createDocumentFragment(){return node('fragment');}},
+  elements:{sources:{replaceChildren(fragment){rows=fragment.children;}}}};
+vm.createContext(context); vm.runInContext(source.slice(begin,end),context);
+const cases = [
+  [{available:true}, true, 'connected', false],
+  [{available:true,waiting_for_chat:true}, true, 'waiting for a chat', false],
+  [{available:true,coverage_limited:true}, true, 'limited', true],
+  [{available:false,coverage_limited:true}, true, 'unavailable', false],
+  [{available:true,coverage_limited:true}, false, 'unconfirmed', false],
+  [{available:true,sample:true}, true, 'sample', false],
+];
+for (const [fields,connected,expected,limited] of cases) {
+  context.connected=connected;
+  const detail='Verified source; some histories are still being checked.';
+  context.state.sources=[{id:'codex',name:'Codex',detail,...fields}];
+  context.renderSources();
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].children[2].text,expected);
+  assert.equal(rows[0].className.split(' ').includes('limited'),limited);
+  assert.equal(rows[0].title,detail);
+  assert.equal(rows[0].attributes.role,'group');
+  assert.equal(rows[0].attributes['aria-label'],`Codex: ${expected}. ${detail}`);
+}
+""", ROOT / "static/app.js")
 
 
 if __name__ == "__main__":
